@@ -37,10 +37,11 @@ class RLPolicy:
         self.alg = PPO(self.actor_critic, device='cuda:0')
 
         loaded_dict = torch.load(path)
-        self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
+        policy_module = self._get_alg_policy()
+        policy_module.load_state_dict(loaded_dict['model_state_dict'])
         if load_optimizer:
             self.alg.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
-            self.alg.actor_critic.estimator.optimizer.load_state_dict(loaded_dict['estimator_optimizer_state_dict'])
+            policy_module.estimator.optimizer.load_state_dict(loaded_dict['estimator_optimizer_state_dict'])
         self.current_learning_iteration = loaded_dict['iter']
         return loaded_dict['infos']
 
@@ -56,6 +57,12 @@ class RLPolicy:
         if self.empirical_normalization:
             self.obs_normalizer.eval()
             self.critic_obs_normalizer.eval()
+
+    def _get_alg_policy(self):
+        """Compat helper for rsl_rl 1.x (actor_critic) and 3.x (policy)."""
+        if hasattr(self.alg, 'policy'):
+            return self.alg.policy
+        return self.alg.actor_critic
 
 
 @BaseController.register('AliengoMoveBySpeedController')
