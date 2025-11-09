@@ -1,8 +1,17 @@
-import carb
+import importlib
 import numpy as np
 import omni
 
 from internutopia.core.util.interaction import BaseInteraction
+
+
+def _get_carb_module():
+    """Delay carb import until SimulationApp is initialized."""
+    module = globals().get('_carb_module')
+    if module is None:
+        module = importlib.import_module('carb')
+        globals()['_carb_module'] = module
+    return module
 
 
 class KeyboardController:
@@ -15,12 +24,14 @@ class KeyboardController:
         subscribe to keyboard events
         """
         # subscribe to keyboard events
+        carb = _get_carb_module()
         app_window = omni.appwindow.get_default_app_window()  # noqa
         key_input = carb.input.acquire_input_interface()  # noqa
         key_input.subscribe_to_keyboard_events(app_window.get_keyboard(), self._sub_keyboard_event)
 
     def _sub_keyboard_event(self, event, *args, **kwargs):
         """subscribe to keyboard events, map to str"""
+        carb = _get_carb_module()
         if (
             event.type == carb.input.KeyboardEventType.KEY_PRESS
             or event.type == carb.input.KeyboardEventType.KEY_REPEAT
