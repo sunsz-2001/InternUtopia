@@ -526,7 +526,12 @@ class SimulatorRunner:
             from omni.isaac.core.utils.extensions import enable_extension
 
             self._simulation_app.set_setting('/app/window/drawMouse', True)
-            enable_extension('omni.kit.livestream.webrtc')
+            # Isaac Sim 4.5 uses 'omni.kit.livestream.webrtc';
+            # Isaac Sim 5.0 uses 'omni.services.streamclient.webrtc'.
+            try:
+                enable_extension('omni.kit.livestream.webrtc')
+            except Exception:
+                enable_extension('omni.services.streamclient.webrtc')
 
     @property
     def simulation_app(self):

@@ -15,9 +15,10 @@ def main():
     target_path = ''
     while True:
         target_path = input('Please enter the new assets path (must be absolute path): ').strip()
-        if target_path.startswith('/'):
+        # Accept absolute paths on all platforms, e.g. '/data/assets' or 'D:\\assets'
+        if os.path.isabs(target_path):
             break
-        print('target path must be absolute path')
+        print('target path must be an absolute path (e.g. /data/assets or D:\\assets)')
     if not os.path.isdir(target_path):
         print(
             f'{RED}ERROR{END}: {target_path} is not an existing directory.\nPlease ensure the assets have been placed at {target_path}.'
