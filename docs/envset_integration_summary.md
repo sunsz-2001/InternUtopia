@@ -20,8 +20,10 @@
     1. 通过 `EnvsetConfigLoader` 合并 YAML + envset，产生 `EnvsetConfigBundle`（含结构化 `scenario_data`）。
     2. `EnvsetTaskAugmentor` 将 envset 信息注入每个 `task_config`，包括 `scene`, `navmesh`, `virtual_humans`, `robots`。
        - **重要**：`EnvsetTaskAugmentor.apply()` 迭代 `task_configs` 列表并增强每个task，不会创建新task。因此YAML中必须至少有一个task条目。
-    3. 启动 InternUtopia `SimulatorRunner`（自动导入扩展、设置 World/AgentManager/Patch）。
-    4. `runner.reset()` 后根据 CLI 选择是否自动 `timeline.play()`，循环调用 `runner.step(actions)`。
+    3. 启动 InternUtopia `SimulatorRunner`（创建 SimulationApp）。
+    4. 启用必需的 Isaac Sim extensions（`omni.metropolis.utils`, `omni.anim.navigation.*`, `omni.anim.people`, `isaacsim.anim.robot`）。
+    5. 初始化 envset 运行期组件（World/AgentManager/Patch）。
+    6. `runner.reset()` 后根据 CLI 选择是否自动 `timeline.play()`，循环调用 `runner.step(actions)`。
 
 - 引用与扩展：`import_extensions()` 会注册扩展中的 controller/object/robot/task，`bootstrap_world_if_needed()` + `AgentManager.get_instance()` 确保 envset 运行期依赖存在。
 

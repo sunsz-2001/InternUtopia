@@ -130,6 +130,25 @@ class EnvsetStandaloneRunner:
         # Import Isaac Sim modules here, after runner initialization
         import carb
         import carb.settings
+
+        # Enable required extensions before importing envset modules
+        print("[EnvsetStandalone] Enabling required extensions...")
+        try:
+            from omni.isaac.core.utils.extensions import enable_extension
+
+            # Core envset dependencies
+            enable_extension("omni.metropolis.utils")
+            enable_extension("omni.anim.navigation.schema")
+            enable_extension("omni.anim.navigation.core")
+            enable_extension("omni.anim.navigation.meshtools")
+            enable_extension("omni.anim.people")
+            enable_extension("isaacsim.anim.robot")
+
+            carb.log_info("[EnvsetStandalone] Required extensions enabled")
+        except Exception as exc:
+            carb.log_warn(f"[EnvsetStandalone] Failed to enable some extensions: {exc}")
+
+        # Now safe to import envset modules that depend on these extensions
         from internutopia_extension.envset.settings import AssetPaths, Infos
         from internutopia_extension.envset.simulation import (
             ENVSET_AUTOSTART_SETTING,
