@@ -7,6 +7,7 @@ import asyncio
 import copy
 import time
 from pathlib import Path
+from typing import Any, Dict
 
 # Note: Do NOT import Isaac Sim modules (carb, omni, etc.) here!
 # They must be imported AFTER SimulationApp is initialized.
@@ -228,8 +229,100 @@ class EnvsetStandaloneRunner:
         if extension_folders:
             sim_section["extension_folders"] = extension_folders
 
+        # Convert controller dicts back to objects before pydantic parsing
+        # This ensures pydantic preserves the correct ControllerCfg subclass types
+        merged = self._convert_controller_dicts_to_objects(merged)
+
         config_model = _parse_config_model(merged)
         return config_model
+
+    def _convert_controller_dicts_to_objects(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        将字典中的控制器配置转换回对象，确保 pydantic 解析时保持正确的子类类型。
+        这样可以像 demo 一样直接使用对象，而不是字典。
+        """
+        # Import all ControllerCfg subclasses to build type mapping
+        try:
+            from internutopia_extension.configs.controllers import (
+                AliengoMoveBySpeedControllerCfg,
+                DifferentialDriveControllerCfg,
+                FrankaMocapTeleopControllerCfg,
+                G1MoveBySpeedControllerCfg,
+                GR1MoveBySpeedControllerCfg,
+                GR1TeleOpControllerCfg,
+                GripperControllerCfg,
+                H1MoveBySpeedControllerCfg,
+                InverseKinematicsControllerCfg,
+                JointControllerCfg,
+                LayoutEditMocapControllerCfg,
+                MoveAlongPathPointsControllerCfg,
+                MoveToPointBySpeedControllerCfg,
+                RecoverControllerCfg,
+                RMPFlowControllerCfg,
+                RotateControllerCfg,
+            )
+            
+            # Build type -> class mapping
+            # Map controller type strings to their corresponding ControllerCfg subclasses
+            type_to_class = {
+                'AliengoMoveBySpeedController': AliengoMoveBySpeedControllerCfg,
+                'DifferentialDriveController': DifferentialDriveControllerCfg,
+                'FrankaMocapTeleopController': FrankaMocapTeleopControllerCfg,
+                'G1MoveBySpeedController': G1MoveBySpeedControllerCfg,
+                'GR1MoveBySpeedController': GR1MoveBySpeedControllerCfg,
+                'GR1TeleOpController': GR1TeleOpControllerCfg,
+                'GripperController': GripperControllerCfg,
+                'H1MoveBySpeedController': H1MoveBySpeedControllerCfg,
+                'InverseKinematicsController': InverseKinematicsControllerCfg,
+                'JointController': JointControllerCfg,
+                'LayoutEditMocapController': LayoutEditMocapControllerCfg,
+                'MoveAlongPathPointsController': MoveAlongPathPointsControllerCfg,
+                'MoveToPointBySpeedController': MoveToPointBySpeedControllerCfg,
+                'RecoverController': RecoverControllerCfg,
+                'RMPFlowController': RMPFlowControllerCfg,
+                'RotateController': RotateControllerCfg,
+            }
+        except ImportError:
+            # If imports fail, return as-is (fallback to dict)
+            return config_dict
+        
+        def convert_controller_dict(ctrl_dict: Dict[str, Any]) -> Any:
+            """递归转换单个控制器字典为对象"""
+            if not isinstance(ctrl_dict, dict):
+                return ctrl_dict
+            
+            ctrl_type = ctrl_dict.get('type')
+            if not ctrl_type:
+                return ctrl_dict
+            
+            # Find the corresponding ControllerCfg subclass
+            cfg_class = type_to_class.get(ctrl_type)
+            if not cfg_class:
+                # If no matching class found, use base ControllerCfg
+                from internutopia.core.config.robot import ControllerCfg
+                cfg_class = ControllerCfg
+            
+            # Recursively convert sub_controllers
+            if 'sub_controllers' in ctrl_dict and ctrl_dict['sub_controllers']:
+                sub_controllers = [convert_controller_dict(sub) for sub in ctrl_dict['sub_controllers']]
+                ctrl_dict = dict(ctrl_dict)
+                ctrl_dict['sub_controllers'] = sub_controllers
+            
+            # Create the object using pydantic's model_validate or parse_obj
+            try:
+                return cfg_class.model_validate(ctrl_dict)  # pydantic v2
+            except AttributeError:
+                return cfg_class.parse_obj(ctrl_dict)  # pydantic v1
+        
+        # Recursively convert controllers in task_configs -> robots -> controllers
+        if 'task_configs' in config_dict:
+            for task in config_dict['task_configs']:
+                if 'robots' in task and task['robots']:
+                    for robot in task['robots']:
+                        if 'controllers' in robot and robot['controllers']:
+                            robot['controllers'] = [convert_controller_dict(ctrl) for ctrl in robot['controllers']]
+        
+        return config_dict
 
     def _create_runner(self, config: Config) -> SimulatorRunner:
         task_manager = create_task_config_manager(config)
