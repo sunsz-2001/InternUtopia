@@ -11,9 +11,12 @@ simulator:
 # env_num will be determined by task_configs
 env_num: 1
 
-# Task configurations will be injected from envset.json
-# You don't need to specify task_configs here
-task_configs: []
+# Task configurations: envset will augment this minimal task with scene, robots, etc.
+task_configs:
+  - type: FiniteStepTask
+    max_steps: 3000
+    robots: []  # Will be populated from envset.json
+    scene_asset_path: null  # Will be populated from envset.json
 
 # Scene configuration will be merged from envset.json
 scene: {}

@@ -19,8 +19,9 @@
   - 流程：
     1. 通过 `EnvsetConfigLoader` 合并 YAML + envset，产生 `EnvsetConfigBundle`（含结构化 `scenario_data`）。
     2. `EnvsetTaskAugmentor` 将 envset 信息注入每个 `task_config`，包括 `scene`, `navmesh`, `virtual_humans`, `robots`。
+       - **重要**：`EnvsetTaskAugmentor.apply()` 迭代 `task_configs` 列表并增强每个task，不会创建新task。因此YAML中必须至少有一个task条目。
     3. 启动 InternUtopia `SimulatorRunner`（自动导入扩展、设置 World/AgentManager/Patch）。
-    4. `runner.reset()` 后根据 CLI 选择是否自动 `timeline.play()`，循环调用 `SimulationApp.update()`。
+    4. `runner.reset()` 后根据 CLI 选择是否自动 `timeline.play()`，循环调用 `runner.step(actions)`。
 
 - 引用与扩展：`import_extensions()` 会注册扩展中的 controller/object/robot/task，`bootstrap_world_if_needed()` + `AgentManager.get_instance()` 确保 envset 运行期依赖存在。
 
@@ -193,8 +194,9 @@ python -m internutopia_extension.envset.standalone \
 
 **注意**：
 - `config_minimal.yaml` 是最小化的基础配置文件，已包含在项目根目录
-- 大部分配置来自 `envset.json`，config文件只提供基础的模拟器设置
-- 如果没有 `config_minimal.yaml`，可以创建一个空的YAML文件，envset会提供所有必要配置
+- 大部分配置来自 `envset.json`，config文件提供基础的模拟器设置和至少一个task模板
+- `task_configs` 必须包含至少一个task条目（即使内容为空），envset会将场景、机器人等信息注入到这个task中
+- 不能使用完全空的 `task_configs: []`，因为EnvsetTaskAugmentor会迭代现有task来注入envset数据
 
 ## 6. 后续可选优化
 
