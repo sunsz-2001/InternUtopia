@@ -77,28 +77,40 @@ class EnvsetStandaloneRunner:
         self._shutdown_flag = True
 
     def run(self):
+        print("[EnvsetStandalone] Building config model...")
         # Build config first (before SimulationApp)
         config_model = self._build_config_model()
 
+        print("[EnvsetStandalone] Importing extensions...")
         # Import extensions (prepares robot/controller registrations)
         import_extensions()
 
+        print("[EnvsetStandalone] Creating runner (initializing SimulationApp)...")
         # Create runner (this initializes SimulationApp)
         self._runner = self._create_runner(config_model)
 
+        print("[EnvsetStandalone] Preparing runtime settings...")
         # Now we can use Isaac Sim modules (carb, etc.)
         self._prepare_runtime_settings()
+
+        print("[EnvsetStandalone] Post-runner initialization...")
         self._post_runner_initialize()
 
+        print("[EnvsetStandalone] Resetting environment...")
         # Reset and start
         self._runner.reset()
+
         if self._args.run_data:
             self._init_data_generation()
             self._run_data_generation()
         else:
             if not self._args.no_play:
+                print("[EnvsetStandalone] Starting timeline...")
                 self._start_timeline()
+            print("[EnvsetStandalone] Entering main loop...")
             self._main_loop()
+
+        print("[EnvsetStandalone] Run completed.")
 
     def shutdown(self):
         if self._runner and self._runner.simulation_app:
@@ -358,7 +370,13 @@ def main():
     try:
         runner.run()
     except KeyboardInterrupt:
+        print("[EnvsetStandalone] Interrupted by user")
         runner.request_shutdown()
+    except Exception as e:
+        print(f"[EnvsetStandalone] ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
     finally:
         runner.shutdown()
 
