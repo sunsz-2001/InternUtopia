@@ -54,7 +54,7 @@ from .navmesh_utils import ensure_navmesh_async
 from .incident_bridge import IncidentBridge
 from .virtual_human_colliders import ColliderConfig, VirtualHumanColliderApplier
 from isaacsim.core.utils import prims
-from .guards.arrival_guard import ArrivalGuard
+from internutopia_extension.guards.arrival_guard import ArrivalGuard
 
 FRAME_RATE = 30
 
