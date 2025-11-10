@@ -8,23 +8,15 @@ import copy
 import time
 from pathlib import Path
 
-import carb
+# Note: Do NOT import Isaac Sim modules (carb, omni, etc.) here!
+# They must be imported AFTER SimulationApp is initialized.
 
 from internutopia.core.config import Config
 from internutopia.core.runner import SimulatorRunner
 from internutopia.core.task_config_manager.base import create_task_config_manager
 
 from internutopia_extension import import_extensions
-from internutopia_extension.envset.agent_manager import AgentManager
 from internutopia_extension.envset.config_loader import EnvsetConfigLoader
-from internutopia_extension.envset.patches import install_safe_simtimes_guard
-from internutopia_extension.envset.settings import AssetPaths, Infos
-from internutopia_extension.envset.simulation import (
-    ENVSET_AUTOSTART_SETTING,
-    ENVSET_PATH_SETTING,
-    ENVSET_SCENARIO_SETTING,
-)
-from internutopia_extension.envset.world_utils import bootstrap_world_if_needed
 
 
 def _parse_args() -> argparse.Namespace:
@@ -85,11 +77,20 @@ class EnvsetStandaloneRunner:
         self._shutdown_flag = True
 
     def run(self):
-        self._prepare_runtime_settings()
+        # Build config first (before SimulationApp)
         config_model = self._build_config_model()
+
+        # Import extensions (prepares robot/controller registrations)
         import_extensions()
+
+        # Create runner (this initializes SimulationApp)
         self._runner = self._create_runner(config_model)
+
+        # Now we can use Isaac Sim modules (carb, etc.)
+        self._prepare_runtime_settings()
         self._post_runner_initialize()
+
+        # Reset and start
         self._runner.reset()
         if self._args.run_data:
             self._init_data_generation()
@@ -114,6 +115,16 @@ class EnvsetStandaloneRunner:
     # ---------- internal helpers ----------
 
     def _prepare_runtime_settings(self):
+        # Import Isaac Sim modules here, after runner initialization
+        import carb
+        import carb.settings
+        from internutopia_extension.envset.settings import AssetPaths, Infos
+        from internutopia_extension.envset.simulation import (
+            ENVSET_AUTOSTART_SETTING,
+            ENVSET_PATH_SETTING,
+            ENVSET_SCENARIO_SETTING,
+        )
+
         settings_iface = carb.settings.get_settings()
         settings_iface.set(ENVSET_PATH_SETTING, str(self._envset_path))
         settings_iface.set(ENVSET_AUTOSTART_SETTING, False)
@@ -150,12 +161,19 @@ class EnvsetStandaloneRunner:
         return runner
 
     def _post_runner_initialize(self):
+        # Import Isaac Sim modules (can now be safely imported)
+        from internutopia_extension.envset.world_utils import bootstrap_world_if_needed
+        from internutopia_extension.envset.agent_manager import AgentManager
+        from internutopia_extension.envset.patches import install_safe_simtimes_guard
+
         bootstrap_world_if_needed()
         AgentManager.get_instance()
         install_safe_simtimes_guard()
 
     def _init_data_generation(self):
         """Initialize DataGeneration for recording simulation data."""
+        import carb
+
         try:
             from internutopia_extension.data_generation.data_generation import DataGeneration
         except ImportError as e:
@@ -189,6 +207,8 @@ class EnvsetStandaloneRunner:
 
     def _run_data_generation(self):
         """Run data generation asynchronously."""
+        import carb
+
         if self._data_gen is None:
             carb.log_error("[EnvsetStandalone] DataGeneration not initialized")
             return
@@ -215,6 +235,8 @@ class EnvsetStandaloneRunner:
 
     def _detect_keyboard_control(self):
         """Detect if any robot requires keyboard control."""
+        import carb
+
         scenario = self._bundle.scenario
         robots_cfg = scenario.get("robots", {})
         robot_entries = robots_cfg.get("entries", [])
@@ -253,6 +275,8 @@ class EnvsetStandaloneRunner:
 
     def _init_keyboard(self):
         """Initialize keyboard interaction if needed."""
+        import carb
+
         self._keyboard_robots = self._detect_keyboard_control()
 
         if self._keyboard_robots:
@@ -289,6 +313,8 @@ class EnvsetStandaloneRunner:
         return actions
 
     def _main_loop(self):
+        import carb
+
         sim_app = self._runner.simulation_app if self._runner else None
         if sim_app is None:
             return
