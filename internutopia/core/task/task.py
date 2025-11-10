@@ -103,6 +103,7 @@ class BaseTask(ABC):
         self.robots = init_robots(self.config, self._scene)
         self.objects = init_objects(self.config, self._scene)
         self.loaded = True
+        self._apply_envset_runtime_hooks()
 
     def clear_rigid_bodies(self):
         for rigid_body_name in self.scene_rigid_bodies.keys():
@@ -152,6 +153,16 @@ class BaseTask(ABC):
         self._scene = scene
         if not self.loaded:
             self.load()
+
+    def _apply_envset_runtime_hooks(self):
+        try:
+            from internutopia_extension.envset.runtime_hooks import EnvsetTaskRuntime
+
+            EnvsetTaskRuntime.configure_task(self)
+        except ModuleNotFoundError:
+            return
+        except Exception as exc:
+            log.warn(f"[EnvsetRuntime] hook failed: {exc}")
 
     def get_observations(self) -> Dict[str, Any]:
         """

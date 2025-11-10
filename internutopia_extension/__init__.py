@@ -6,3 +6,6 @@ def import_extensions():
     import internutopia_extension.robots
     import internutopia_extension.sensors
     import internutopia_extension.tasks
+
+
+from .extension import *
