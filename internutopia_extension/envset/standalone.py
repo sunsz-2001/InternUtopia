@@ -111,14 +111,12 @@ class EnvsetStandaloneRunner:
         print("[EnvsetStandalone] Waiting for scene and objects to initialize...")
         self._wait_for_initialization()
 
-        # 等待异步资产加载完成（如果有SimulationManager）
-        print("[EnvsetStandalone] Waiting for async asset loading to complete...")
-        self._wait_for_async_loading()
-
-        # Warm-up物理仿真，让系统稳定（但不启动timeline）
-        print("[EnvsetStandalone] Warming up physics simulation (timeline will not auto-start)...")
-        # 注意：warm_up需要timeline已启动才能工作，所以这里先跳过
-        # 用户需要手动启动timeline后再进行warm-up
+        # 确保timeline保持暂停状态
+        import omni.timeline
+        timeline = omni.timeline.get_timeline_interface()
+        if timeline.is_playing():
+            timeline.pause()
+            print("[EnvsetStandalone] Timeline was playing, paused it.")
 
         if self._args.run_data:
             self._init_data_generation()
@@ -301,14 +299,34 @@ class EnvsetStandaloneRunner:
             carb.log_error(traceback.format_exc())
 
         # After data generation completes, continue with normal simulation if requested
+        # 注意：不再自动启动timeline，等待用户手动启动
         if not self._args.no_play:
-            self._start_timeline()
+            print("[EnvsetStandalone] Data generation completed. Timeline is paused. Please start timeline manually when ready.")
+            # 确保timeline保持暂停
+            try:
+                import omni.timeline
+                timeline = omni.timeline.get_timeline_interface()
+                if timeline.is_playing():
+                    timeline.pause()
+                    print("[EnvsetStandalone] Timeline was playing, paused it.")
+            except Exception:
+                pass
             self._main_loop()
 
     def _wait_for_initialization(self):
         """等待场景和对象完全初始化"""
         import carb
         from omni.isaac.core.simulation_context import SimulationContext
+        
+        # 确保timeline保持暂停
+        try:
+            import omni.timeline
+            timeline = omni.timeline.get_timeline_interface()
+            if timeline.is_playing():
+                timeline.pause()
+                carb.log_info("[EnvsetStandalone] Timeline was playing, paused it during initialization")
+        except Exception:
+            pass
         
         # 使用SimulationContext的step方法来等待几帧
         # 这样可以确保USD系统处理完所有变更，但物理仿真还未启动
@@ -323,32 +341,22 @@ class EnvsetStandaloneRunner:
                 carb.log_warn("[EnvsetStandalone] World not available, skipping initialization wait")
         except Exception as e:
             carb.log_warn(f"[EnvsetStandalone] Initialization wait failed: {e}, continuing anyway")
+        
+        # 再次确保timeline保持暂停
+        try:
+            import omni.timeline
+            timeline = omni.timeline.get_timeline_interface()
+            if timeline.is_playing():
+                timeline.pause()
+                carb.log_info("[EnvsetStandalone] Timeline paused after initialization wait")
+        except Exception:
+            pass
 
     def _wait_for_async_loading(self):
-        """等待异步资产加载完成"""
-        import carb
-        import asyncio
-        
-        try:
-            # 等待几帧，让异步任务有机会完成
-            import omni.kit.app
-            app = omni.kit.app.get_app()
-            if app:
-                async def _wait_frames():
-                    for _ in range(10):  # 等待更多帧
-                        await app.next_update_async()
-                
-                try:
-                    asyncio.run(_wait_frames())
-                    carb.log_info("[EnvsetStandalone] Async loading wait completed")
-                except Exception as e:
-                    carb.log_warn(f"[EnvsetStandalone] Async wait failed: {e}, continuing anyway")
-            else:
-                carb.log_warn("[EnvsetStandalone] App not available, skipping async wait")
-        except ImportError:
-            carb.log_warn("[EnvsetStandalone] SimulationManager not available, skipping async wait")
-        except Exception as e:
-            carb.log_warn(f"[EnvsetStandalone] Async loading wait failed: {e}, continuing anyway")
+        """等待异步资产加载完成 - 已移除，改为在初始化等待中处理"""
+        # 此方法已不再需要，因为load_assets_to_scene是异步的，会在后台完成
+        # 我们只需要确保timeline保持暂停即可
+        pass
 
     def _start_timeline(self):
         import omni.timeline
