@@ -12,7 +12,7 @@
         "notes": "GRScenes sample; replace usd_path with the specific scene asset."
       },
       "navmesh": {
-        "bake_root_prim_path": "/Root/Meshes/Base/ground",
+        "bake_root_prim_path": "Meshes/Base/ground",
         "include_volume_parent": "/World/NavMesh",
         "z_padding": 2.0,
         "agent_radius": 10.0,
@@ -32,7 +32,7 @@
           "Character": "original_male_adult_medical_01/male_adult_medical_01.usd"
         },
         "asset_root": {
-          "settings_key": "/home/ubuntu/sunsz/IsaacAssets/People/Characters",
+          "path": "/home/ubuntu/sunsz/IsaacAssets/People/Characters",
           "fallback": ""
         },
         "spawn_policy": {
@@ -84,7 +84,6 @@
               "module": "tools.teleop.carter_keyboard",
               "entry": "launch",
               "params": {
-                "robot_path": "/World/carter_v1",
                 "left_joint": "left_wheel",
                 "right_joint": "right_wheel",
                 "wheel_radius": 0.24,

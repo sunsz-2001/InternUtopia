@@ -21,21 +21,22 @@ except ImportError:
 
 class EnvsetTaskAugmentor:
     @staticmethod
-    def apply(config: Dict[str, Any], scenario_data: EnvsetScenarioData) -> Dict[str, Any]:
+    def apply(config: Dict[str, Any], scenario_data: EnvsetScenarioData, scenario_id: str = None) -> Dict[str, Any]:
         tasks = config.get("task_configs")
         if not isinstance(tasks, list):
             return config
-        payload = EnvsetTaskAugmentor._build_envset_payload(scenario_data)
+        payload = EnvsetTaskAugmentor._build_envset_payload(scenario_data, scenario_id)
         for idx, task in enumerate(tasks):
             EnvsetTaskAugmentor._inject_task(task, payload, scenario_data, robot_prefix=f"envset_{idx}")
         return config
 
     @staticmethod
-    def _build_envset_payload(scenario_data: EnvsetScenarioData) -> Dict[str, Any]:
+    def _build_envset_payload(scenario_data: EnvsetScenarioData, scenario_id: str = None) -> Dict[str, Any]:
         payload = {
             "scene": scenario_data.scene.raw,
             "navmesh": scenario_data.navmesh.raw if scenario_data.navmesh else None,
             "logging": scenario_data.logging,
+            "scenario_id": scenario_id,  # Add scenario id to payload
         }
         if scenario_data.virtual_humans:
             vh = scenario_data.virtual_humans

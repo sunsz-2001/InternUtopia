@@ -47,6 +47,8 @@ class EnvsetConfigLoader:
         envset = self._load_envset_json()
         scenario_id, scenario = self._select_scenario(envset)
         scenario_data = self._build_scenario_data(scenario)
+        # Store scenario_id for use in _apply_envset
+        self._selected_scenario_id = scenario_id
         merged_config = self._apply_envset(config, scenario_data)
         merged_path = self._write_temp_yaml(merged_config)
         return EnvsetConfigBundle(
@@ -99,7 +101,9 @@ class EnvsetConfigLoader:
         scene_section["use_matterport"] = bool(use_matterport)
 
         merged["scene"] = scene_section
-        merged = EnvsetTaskAugmentor.apply(merged, scenario_data)
+        # Use the selected scenario_id (from _select_scenario) instead of self._scenario_id
+        scenario_id = getattr(self, '_selected_scenario_id', self._scenario_id)
+        merged = EnvsetTaskAugmentor.apply(merged, scenario_data, scenario_id=scenario_id)
         return merged
 
     def _build_scenario_data(self, scenario: Dict[str, Any]) -> EnvsetScenarioData:

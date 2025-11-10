@@ -55,11 +55,81 @@ class EnvsetTaskRuntime:
         if not navmesh_cfg:
             return
         scene_cfg = envset_cfg.get("scene") or {}
-        root_path = navmesh_cfg.get("bake_root_prim_path") or scene_cfg.get("root_prim_path") or "/World"
+        
+        # Get the configured bake root path (e.g., "/Root/Meshes/Base/ground")
+        configured_bake_root = navmesh_cfg.get("bake_root_prim_path")
+        configured_scene_root = scene_cfg.get("root_prim_path")  # e.g., "/Root"
+        
+        # Resolve the actual scene root path in the loaded stage
+        # InternUtopia loads scenes to /World/{scenario_id}/scene, using scenario id from envset.json
+        stage = omni.usd.get_context().get_stage()
+        actual_scene_root = None
+        
+        # Get scenario_id from envset_cfg
+        scenario_id = envset_cfg.get("scenario_id")
+        
+        if stage and scenario_id:
+            # Use scenario_id to build the path: /World/{scenario_id}/scene
+            candidate_path = f"/World/{scenario_id}/scene"
+            prim = stage.GetPrimAtPath(candidate_path)
+            if prim and prim.IsValid():
+                actual_scene_root = candidate_path
+            else:
+                # Fallback: try to find any scene prim under /World/{scenario_id}/
+                scenario_prim = stage.GetPrimAtPath(f"/World/{scenario_id}")
+                if scenario_prim and scenario_prim.IsValid():
+                    # Look for "scene" child
+                    for child in scenario_prim.GetChildren():
+                        if child.GetName() == "scene" and child.IsValid():
+                            actual_scene_root = str(child.GetPath())
+                            break
+        
+        # If scenario_id not available, fallback to old env_id-based search
+        if not actual_scene_root and stage:
+            # Try to find the scene prim loaded by InternUtopia (typically /World/env_0/scene)
+            for env_id in range(10):  # Check up to 10 environments
+                candidate_path = f"/World/env_{env_id}/scene"
+                prim = stage.GetPrimAtPath(candidate_path)
+                if prim and prim.IsValid():
+                    actual_scene_root = candidate_path
+                    break
+        
+        # If we found the InternUtopia scene path, map the bake root relative to it
+        if actual_scene_root and configured_bake_root:
+            # Check if bake_root is already a relative path (doesn't start with "/")
+            if not configured_bake_root.startswith("/"):
+                # It's already a relative path, use it directly
+                root_path = f"{actual_scene_root}/{configured_bake_root}"
+            elif configured_scene_root and configured_bake_root.startswith(configured_scene_root):
+                # Extract the relative path from the configured scene root
+                # e.g., "/Root/Meshes/Base/ground" -> "Meshes/Base/ground" (if scene_root="/Root")
+                relative_path = configured_bake_root[len(configured_scene_root):].lstrip("/")
+                root_path = f"{actual_scene_root}/{relative_path}" if relative_path else actual_scene_root
+            else:
+                # If bake_root doesn't start with scene_root, try to extract relative part
+                # Extract just the last part (e.g., "Meshes/Base/ground" from "/Root/Meshes/Base/ground")
+                parts = configured_bake_root.strip("/").split("/")
+                if len(parts) > 1:
+                    # Try to find the matching subpath under actual_scene_root
+                    relative_path = "/".join(parts[1:])  # Skip the root part
+                    root_path = f"{actual_scene_root}/{relative_path}"
+                else:
+                    root_path = configured_bake_root
+        elif actual_scene_root:
+            # No bake_root configured, use the actual scene root
+            root_path = actual_scene_root
+        else:
+            # Fallback to configured paths or defaults
+            root_path = configured_bake_root or configured_scene_root or "/World"
+        
         include_parent = navmesh_cfg.get("include_volume_parent") or "/World/NavMesh"
         z_padding = navmesh_cfg.get("z_padding") or 2.0
-        min_xy = navmesh_cfg.get("min_include_xy") or None
-        min_z = navmesh_cfg.get("min_include_z") or None
+        # Support both formats: direct fields or nested in min_include_volume_size
+        min_size = navmesh_cfg.get("min_include_volume_size") or {}
+        min_xy = navmesh_cfg.get("min_include_xy") or min_size.get("xy") or None
+        min_z = navmesh_cfg.get("min_include_z") or min_size.get("z") or None
+        
+        carb.log_info(f"[EnvsetRuntime] NavMesh bake root resolved: {configured_bake_root} -> {root_path}")
         ensure_navmesh_volume(
             root_prim_path=root_path,
             z_padding=z_padding,
