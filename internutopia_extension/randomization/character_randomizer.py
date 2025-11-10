@@ -6,8 +6,8 @@ from omni.metropolis.utils.file_util import JSONFileUtil
 from omni.metropolis.utils.carb_util import CarbSettingUtil
 from omni.anim.people.scripts.custom_command.command_manager import CustomCommandManager
 from omni.anim.people.scripts.custom_command.defines import CustomCommandTemplate
-from ..stage_util import CharacterUtil
-from ..settings import CommandSetting, Infos
+from internutopia_extension.envset.stage_util import CharacterUtil
+from internutopia_extension.envset.settings import CommandSetting, Infos
 
 from .randomizer import (
     Command,
