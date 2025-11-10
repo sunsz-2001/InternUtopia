@@ -4,7 +4,7 @@ import carb
 import numpy as np
 from internutopia_extension.envset.agent_manager import AgentManager
 
-from ..settings import WriterSetting
+from internutopia_extension.envset.settings import WriterSetting
 from .writers.writer_utils import WriterUtils
 
 

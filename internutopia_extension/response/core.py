@@ -15,8 +15,8 @@ from typing import List, Dict
 import omni.timeline
 from omni.metropolis.utils.triggers.core import TriggerBase, TriggersManager
 from omni.metropolis.utils.carb_util import CarbUtil
-from ..agent_manager import AgentManager
-from ..config_file.defines import ResponseProperty, CommandResponseProperty, ResponseSection
+from internutopia_extension.envset.agent_manager import AgentManager
+from internutopia_extension.configs.scenes.defines import ResponseProperty, CommandResponseProperty, ResponseSection
 
 from isaacsim.replicator.incident.incident_trigger import IncidentTrigger
 import omni.anim.navigation.core as nav

@@ -10,7 +10,7 @@ from pxr import Gf, Semantics, Usd, UsdGeom, UsdSkel
 from typing import Optional, Callable, List
 from functools import partial
 
-from ..settings import PrimPaths, WriterSetting
+from internutopia_extension.envset.settings import PrimPaths, WriterSetting
 
 
 class AnnotatorDataProcessor:

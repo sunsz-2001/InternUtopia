@@ -2,7 +2,7 @@ import random
 from datetime import datetime
 import carb
 from omni.metropolis.utils.file_util import YamlFileUtil
-from ..settings import AssetPaths, Infos
+from internutopia_extension.envset.settings import AssetPaths, Infos
 
 
 class ConfigFileDefault:

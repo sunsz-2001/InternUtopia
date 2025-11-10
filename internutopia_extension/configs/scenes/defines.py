@@ -7,7 +7,7 @@ from omni.metropolis.utils.config_file.section import Section
 from omni.metropolis.utils.config_file.util import PropertyVerifyUtil, ConfigFileError
 from omni.metropolis.utils.type_util import TypeUtil
 from omni.metropolis.utils.triggers.config_file_defines import TriggersManager, property_with_trigger
-from ..data_generation.writers import get_writers_params_values
+from internutopia_extension.data_generation.writers import get_writers_params_values
 from .default import ConfigFileDefault
 
 
