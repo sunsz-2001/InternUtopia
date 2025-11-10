@@ -445,7 +445,7 @@ class EnvsetStandaloneRunner:
 
     def _wait_for_articulations_initialized(self, max_wait_frames: int = 100):
         """
-        等待所有 articulation 初始化完成。
+        等待所有 articulation 初始化完成，同时检查 NavMesh 烘培状态。
         
         Args:
             max_wait_frames: 最大等待帧数，超过此帧数后放弃等待
@@ -464,7 +464,19 @@ class EnvsetStandaloneRunner:
             carb.log_warn("[EnvsetStandalone] World not available, cannot wait for articulations")
             return False
         
+        # 尝试获取 NavMesh 接口
+        navmesh_interface = None
+        try:
+            import omni.anim.navigation.core as nav
+            navmesh_interface = nav.acquire_interface()
+        except Exception:
+            pass
+        
         carb.log_info("[EnvsetStandalone] Waiting for all articulations to initialize...")
+        if navmesh_interface:
+            carb.log_info("[EnvsetStandalone] Also checking NavMesh baking status...")
+        
+        navmesh_ready = False
         
         for frame_idx in range(max_wait_frames):
             # 渲染一帧，让物理系统有机会初始化
@@ -489,23 +501,74 @@ class EnvsetStandaloneRunner:
                         all_initialized = False
                         uninitialized_robots.append(f"{task_name}/{robot_name}")
             
+            # 检查 NavMesh 状态
+            navmesh_status_msg = ""
+            if navmesh_interface:
+                try:
+                    navmesh = navmesh_interface.get_navmesh()
+                    if navmesh is not None:
+                        if not navmesh_ready:
+                            navmesh_ready = True
+                            try:
+                                area_count = navmesh.get_area_count()
+                                navmesh_status_msg = f", NavMesh ready (areas={area_count})"
+                            except Exception:
+                                navmesh_status_msg = ", NavMesh ready"
+                    else:
+                        navmesh_status_msg = ", NavMesh baking..."
+                except Exception:
+                    navmesh_status_msg = ", NavMesh status unknown"
+            
             if all_initialized:
-                carb.log_info(f"[EnvsetStandalone] All articulations initialized after {frame_idx + 1} frames")
+                if navmesh_ready:
+                    carb.log_info(
+                        f"[EnvsetStandalone] All articulations initialized and NavMesh ready after {frame_idx + 1} frames"
+                    )
+                else:
+                    carb.log_info(
+                        f"[EnvsetStandalone] All articulations initialized after {frame_idx + 1} frames"
+                        f"{navmesh_status_msg}"
+                    )
                 return True
             
             # 每10帧打印一次状态
-            if frame_idx % 10 == 0 and uninitialized_robots:
+            if frame_idx % 10 == 0:
+                status_parts = []
+                if uninitialized_robots:
+                    status_parts.append(
+                        f"Uninitialized robots: {', '.join(uninitialized_robots[:5])}"
+                        f"{'...' if len(uninitialized_robots) > 5 else ''}"
+                    )
+                if navmesh_status_msg:
+                    status_parts.append(navmesh_status_msg.strip(', '))
+                
+                status_str = " | ".join(status_parts) if status_parts else "Waiting..."
                 carb.log_info(
-                    f"[EnvsetStandalone] Waiting for articulations... "
-                    f"({frame_idx + 1}/{max_wait_frames} frames) "
-                    f"Uninitialized: {', '.join(uninitialized_robots[:5])}"
-                    f"{'...' if len(uninitialized_robots) > 5 else ''}"
+                    f"[EnvsetStandalone] Waiting... ({frame_idx + 1}/{max_wait_frames} frames) | {status_str}"
                 )
         
-        carb.log_warn(
-            f"[EnvsetStandalone] Some articulations not initialized after {max_wait_frames} frames. "
-            f"Continuing anyway, but errors may occur."
-        )
+        # 最终状态报告
+        final_status = []
+        if uninitialized_robots:
+            final_status.append(f"Some articulations not initialized: {', '.join(uninitialized_robots[:3])}")
+        if navmesh_interface:
+            try:
+                navmesh = navmesh_interface.get_navmesh()
+                if navmesh is None:
+                    final_status.append("NavMesh not ready")
+            except Exception:
+                pass
+        
+        if final_status:
+            carb.log_warn(
+                f"[EnvsetStandalone] Timeout after {max_wait_frames} frames. "
+                f"{' | '.join(final_status)}. Continuing anyway, but errors may occur."
+            )
+        else:
+            carb.log_warn(
+                f"[EnvsetStandalone] Timeout after {max_wait_frames} frames. "
+                f"Continuing anyway, but errors may occur."
+            )
         return False
 
     def _main_loop(self):
