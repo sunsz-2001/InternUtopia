@@ -571,6 +571,32 @@ class EnvsetStandaloneRunner:
             )
         return False
 
+    def _are_articulations_ready(self) -> bool:
+        """
+        快速检查所有 articulation 是否已初始化。
+        
+        Returns:
+            bool: 如果所有 articulation 都已初始化返回 True，否则返回 False
+        """
+        if not self._runner:
+            return False
+        
+        for task_name, task in self._runner.current_tasks.items():
+            if not hasattr(task, 'robots') or not task.robots:
+                continue
+            
+            for robot_name, robot in task.robots.items():
+                if not hasattr(robot, 'articulation'):
+                    continue
+                
+                if not hasattr(robot.articulation, 'handles_initialized'):
+                    continue
+                
+                if not robot.articulation.handles_initialized:
+                    return False
+        
+        return True
+
     def _main_loop(self):
         import carb
 
@@ -615,6 +641,14 @@ class EnvsetStandaloneRunner:
             elif not timeline_is_playing:
                 timeline_was_playing = False
 
+            # 如果 timeline 正在播放，检查 articulation 是否已准备好
+            # 如果未准备好，跳过这一步，只更新应用但不调用 runner.step()
+            if timeline_is_playing:
+                if not self._are_articulations_ready():
+                    # Articulation 还未准备好，只更新应用，不调用 step()
+                    sim_app.update()
+                    continue
+            
             # Collect actions (keyboard input or empty for autonomous)
             actions = self._collect_actions()
 
@@ -622,9 +656,24 @@ class EnvsetStandaloneRunner:
             try:
                 self._runner.step(actions=actions, render=True)
             except Exception as e:
-                carb.log_error(f"[EnvsetStandalone] Error in runner.step(): {e}")
-                # Fallback to simple update on error
-                sim_app.update()
+                # 如果是 articulation 未初始化的错误，等待并重试
+                if "Failed to get root link transforms" in str(e) or "handles_initialized" in str(e):
+                    carb.log_warn(f"[EnvsetStandalone] Articulation not ready, waiting... Error: {e}")
+                    # 等待几帧让 articulation 初始化
+                    for _ in range(5):
+                        sim_app.update()
+                    # 再次检查，如果准备好了就继续，否则跳过这一步
+                    if self._are_articulations_ready():
+                        carb.log_info("[EnvsetStandalone] Articulations ready, continuing...")
+                        continue
+                    else:
+                        carb.log_warn("[EnvsetStandalone] Articulations still not ready, skipping step()")
+                        sim_app.update()
+                        continue
+                else:
+                    carb.log_error(f"[EnvsetStandalone] Error in runner.step(): {e}")
+                    # Fallback to simple update on error
+                    sim_app.update()
 
 
 def main():
