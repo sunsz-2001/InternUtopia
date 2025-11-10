@@ -152,6 +152,7 @@ class EnvsetStandaloneRunner:
             enable_extension("isaacsim.anim.robot")
             enable_extension("omni.replicator.core")
             enable_extension("isaacsim.replicator.incident")
+            enable_extension("omni.kit.mesh")  # Required for raycast functionality
 
             # Optional: Matterport (may not be available in all Isaac Sim versions)
             try:
