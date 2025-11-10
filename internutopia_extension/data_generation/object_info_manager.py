@@ -2,7 +2,7 @@ from typing import Any
 
 import carb
 import numpy as np
-from isaacsim.replicator.agent.core.agent_manager import AgentManager
+from internutopia_extension.envset.agent_manager import AgentManager
 
 from ..settings import WriterSetting
 from .writers.writer_utils import WriterUtils

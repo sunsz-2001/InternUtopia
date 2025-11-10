@@ -5,8 +5,8 @@ import os
 
 import carb
 import omni.timeline
-from isaacsim.replicator.agent.core.data_generation.object_info_manager import AgentInfo, ObjectInfo, ObjectInfoManager
-from isaacsim.replicator.agent.core.settings import WriterSetting
+from internutopia_extension.data_generation.object_info_manager import AgentInfo, ObjectInfo, ObjectInfoManager
+from internutopia_extension.envset.settings import WriterSetting
 from omni.replicator.core import WriterRegistry
 from omni.replicator.core.scripts import functional as F
 from omni.replicator.core.scripts.writers_default.basicwriter import BasicWriter

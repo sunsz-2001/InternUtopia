@@ -2,8 +2,8 @@
 from typing import Any
 
 import numpy as np
-from isaacsim.replicator.agent.core.data_generation.object_info_manager import AgentInfo, ObjectInfo
-from isaacsim.replicator.agent.core.data_generation.writers.writer_utils import WriterUtils
+from internutopia_extension.data_generation.object_info_manager import AgentInfo, ObjectInfo
+from internutopia_extension.data_generation.writers.writer_utils import WriterUtils
 from omni.metropolis.utils.sensor_util import SensorUtil
 from omni.syntheticdata.scripts import helpers, sensors
 from pxr import Gf, Semantics, Usd, UsdGeom, UsdSkel

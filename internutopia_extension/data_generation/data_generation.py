@@ -9,8 +9,8 @@ import omni.timeline
 import omni.usd
 from isaacsim.core.utils import prims
 from omni.metropolis.utils.config_file.core import ConfigFile
-from isaacsim.replicator.agent.core.settings import Settings
-from isaacsim.replicator.agent.core.stage_util import CameraUtil, LidarCamUtil, RobotUtil
+from internutopia_extension.envset.settings import Settings
+from internutopia_extension.envset.stage_util import CameraUtil, LidarCamUtil, RobotUtil
 from omni.metropolis.utils.debug_util import DebugPrint
 
 FRAME_RATE = 30

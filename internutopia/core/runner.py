@@ -477,6 +477,7 @@ class SimulatorRunner:
     def setup_isaacsim(self):
         # Init Isaac Sim
         from isaacsim import SimulationApp  # noqa
+        import os
 
         headless = self.config.simulator.headless
         native = self.config.simulator.native
@@ -491,8 +492,24 @@ class SimulatorRunner:
         }
 
         # Add custom extension paths if specified
+        # Isaac Sim uses different parameter names in different versions:
+        # - 'extension_folders' (list)
+        # - 'extra_extension_folders' (list)
+        # Try both for compatibility
         if hasattr(self.config.simulator, 'extension_folders') and self.config.simulator.extension_folders:
-            launch_config['extension_folders'] = self.config.simulator.extension_folders
+            ext_paths = self.config.simulator.extension_folders
+
+            # Set environment variable as fallback (Isaac Sim checks this)
+            if 'ISAAC_EXTRA_EXT_PATH' in os.environ:
+                existing = os.environ['ISAAC_EXTRA_EXT_PATH']
+                os.environ['ISAAC_EXTRA_EXT_PATH'] = os.pathsep.join([existing] + ext_paths)
+            else:
+                os.environ['ISAAC_EXTRA_EXT_PATH'] = os.pathsep.join(ext_paths)
+
+            # Try different parameter names
+            launch_config['extension_folders'] = ext_paths
+
+            log.info(f'Custom extension paths configured: {ext_paths}')
 
         self._simulation_app = SimulationApp(launch_config)
         self._simulation_app._carb_settings.set('/physics/cooking/ujitsoCollisionCooking', False)
