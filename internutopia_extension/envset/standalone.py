@@ -26,6 +26,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--scenario", default=None, help="Scenario id inside envset JSON.")
     parser.add_argument("--headless", action="store_true", help="Force headless SimulationApp.")
     parser.add_argument(
+        "--extension-path",
+        action="append",
+        dest="extension_paths",
+        help="Additional extension search path (can be specified multiple times). "
+             "Example: --extension-path /path/to/isaaclab/source",
+    )
+    parser.add_argument(
         "--skip-isaac-assets",
         action="store_true",
         help="Skip querying shared Isaac Sim asset root (defaults to querying).",
@@ -192,6 +199,15 @@ class EnvsetStandaloneRunner:
         sim_section = merged.setdefault("simulator", {})
         if self._args.headless:
             sim_section["headless"] = True
+
+        # Add extension paths from command line and/or config
+        extension_folders = sim_section.get("extension_folders", [])
+        if self._args.extension_paths:
+            # Extend with CLI-provided paths
+            extension_folders.extend(self._args.extension_paths)
+        if extension_folders:
+            sim_section["extension_folders"] = extension_folders
+
         config_model = _parse_config_model(merged)
         return config_model
 

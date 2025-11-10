@@ -11,6 +11,7 @@
     - `--envset`（envset JSON，场景配置）
     - `--scenario`（可选，指定scenario id）
     - `--headless`（无头模式）
+    - `--extension-path`（可重复，添加自定义扩展搜索路径，如 isaaclab source 目录）
     - `--hold-seconds`（运行时长限制）
     - `--no-play`（不自动播放）
     - `--run-data`（数据生成模式）
@@ -108,6 +109,38 @@
    - 若 future 修改了包结构或路径，请同步更新。
 
 ## 5. 使用示例
+
+### 5.0 基本运行命令
+
+如果你的自定义扩展（如 isaaclab extensions）在特定目录：
+
+```bash
+# 基本用法
+python -m internutopia_extension.envset.standalone \
+  --config config_minimal.yaml \
+  --envset scenario.json
+
+# 添加扩展搜索路径（如 isaaclab 的 source 目录）
+python -m internutopia_extension.envset.standalone \
+  --config config_minimal.yaml \
+  --envset scenario.json \
+  --extension-path /path/to/isaaclab/source \
+  --extension-path /another/extension/directory
+
+# 使用 headless 模式和数据生成
+python -m internutopia_extension.envset.standalone \
+  --config config_minimal.yaml \
+  --envset scenario.json \
+  --extension-path /path/to/isaaclab/source \
+  --headless \
+  --run-data
+```
+
+**说明**：
+- `--extension-path` 可以多次指定，添加多个扩展搜索路径
+- 这些路径会被添加到 Isaac Sim 的扩展搜索系统中
+- 如果你的 `omni.isaac.matterport` 等扩展在 isaaclab 的 `source` 目录，使用这个参数指定
+- `source` 目录结构通常是：`isaaclab/source/omni.isaac.matterport/config/extension.toml`
 
 ### 5.1 支持的机器人类型
 

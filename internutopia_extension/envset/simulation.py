@@ -32,15 +32,15 @@ except ImportError:
     carb.log_warn("omni.isaac.matterport is not available. Matterport scene import will be disabled.")
 
 # Removed redundant direct imports; collision/ground handled in importer
-from .data_generation.data_generation import DataGeneration
-from .randomization.camera_randomizer import CameraRandomizer, LidarCameraRandomizer
-from .randomization.carter_randomizer import CarterRandomizer
-from .randomization.character_randomizer import CharacterRandomizer
-from .randomization.randomizer_util import RandomizerUtil
-from .randomization.iw_hub_randomizer import IwHubRandomizer
-from .response.core import AgentResponseManager
-from .robot_control import RobotControlManager
-from .settings import AssetPaths, PrimPaths, BehaviorScriptPaths, Settings, GlobalValues
+from internutopia_extension.data_generation.data_generation import DataGeneration
+from internutopia_extension.randomization.camera_randomizer import CameraRandomizer, LidarCameraRandomizer
+from internutopia_extension.randomization.carter_randomizer import CarterRandomizer
+from internutopia_extension.randomization.character_randomizer import CharacterRandomizer
+from internutopia_extension.randomization.randomizer_util import RandomizerUtil
+from internutopia_extension.randomization.iw_hub_randomizer import IwHubRandomizer
+from internutopia_extension.response.core import AgentResponseManager
+from internutopia_extension.envset.robot_control import RobotControlManager
+from internutopia_extension.envset.settings import AssetPaths, PrimPaths, BehaviorScriptPaths, Settings, GlobalValues
 from .stage_util import (
     AgentUtil,
     CameraUtil,
