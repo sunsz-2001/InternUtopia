@@ -6,7 +6,16 @@
 ## 1. 配置与入口
 
 - CLI：`internutopia_extension/envset/standalone.py`
-  - 参数：`--config`（InternUtopia YAML）、`--envset`（envset JSON）、`--scenario`、`--headless`、`--hold-seconds`、`--no-play`、`--run-data`、`--skip-isaac-assets`、`--label`。
+  - 参数：
+    - `--config`（InternUtopia YAML，基础配置文件，可使用 `config_minimal.yaml`）
+    - `--envset`（envset JSON，场景配置）
+    - `--scenario`（可选，指定scenario id）
+    - `--headless`（无头模式）
+    - `--hold-seconds`（运行时长限制）
+    - `--no-play`（不自动播放）
+    - `--run-data`（数据生成模式）
+    - `--skip-isaac-assets`（跳过Isaac资产查询）
+    - `--label`（标签）
   - 流程：
     1. 通过 `EnvsetConfigLoader` 合并 YAML + envset，产生 `EnvsetConfigBundle`（含结构化 `scenario_data`）。
     2. `EnvsetTaskAugmentor` 将 envset 信息注入每个 `task_config`，包括 `scene`, `navmesh`, `virtual_humans`, `robots`。
@@ -140,7 +149,7 @@
 使用数据生成功能：
 ```bash
 python -m internutopia_extension.envset.standalone \
-  --config config.yaml \
+  --config config_minimal.yaml \
   --envset scenario.json \
   --run-data
 ```
@@ -177,10 +186,15 @@ python -m internutopia_extension.envset.standalone \
 运行：
 ```bash
 python -m internutopia_extension.envset.standalone \
-  --config config.yaml \
+  --config config_minimal.yaml \
   --envset scenario.json
   # 不要加 --headless（键盘需要窗口）
 ```
+
+**注意**：
+- `config_minimal.yaml` 是最小化的基础配置文件，已包含在项目根目录
+- 大部分配置来自 `envset.json`，config文件只提供基础的模拟器设置
+- 如果没有 `config_minimal.yaml`，可以创建一个空的YAML文件，envset会提供所有必要配置
 
 ## 6. 后续可选优化
 
