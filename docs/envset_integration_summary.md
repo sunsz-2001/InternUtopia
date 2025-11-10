@@ -55,7 +55,22 @@
 
 > 注意：目前未实现随机化、虚拟人碰撞体或 spawn shuffle——按需求明确无需支持。
 
-## 4. 现存缺口 / TODO
+## 4. 兼容性处理
+
+### 4.1 可选扩展支持
+
+某些 Isaac Sim extensions 可能在不同版本中不可用，已做兼容处理：
+
+- **omni.isaac.matterport**: 用于导入 Matterport 场景，在某些 Isaac Sim 版本中不存在
+  - 处理方式：可选导入，缺失时会显示警告但不会导致启动失败
+  - 影响：如果使用 Matterport 场景且扩展缺失，会报错但不影响其他功能
+
+相关代码：
+- `simulation.py:25-32` - 可选导入 matterport
+- `simulation.py:1218-1221` - 使用前检查可用性
+- `standalone.py:149-154` - 尝试启用但失败不影响启动
+
+## 5. 现存缺口 / TODO
 
 1. ~~**机器人类型扩展**~~ ✅ **已完成**
    - ✅ 支持 `aliengo`（四足）、`h1`、`g1`、`gr1`（人形）、`franka`（机械臂）等类型

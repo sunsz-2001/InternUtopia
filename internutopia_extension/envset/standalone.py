@@ -143,9 +143,15 @@ class EnvsetStandaloneRunner:
             enable_extension("omni.anim.navigation.meshtools")
             enable_extension("omni.anim.people")
             enable_extension("isaacsim.anim.robot")
-            enable_extension("omni.isaac.matterport")
             enable_extension("omni.replicator.core")
             enable_extension("isaacsim.replicator.incident")
+
+            # Optional: Matterport (may not be available in all Isaac Sim versions)
+            try:
+                enable_extension("omni.isaac.matterport")
+                carb.log_info("[EnvsetStandalone] Matterport extension enabled")
+            except Exception:
+                carb.log_warn("[EnvsetStandalone] Matterport extension not available - Matterport scene import will be disabled")
 
             carb.log_info("[EnvsetStandalone] Required extensions enabled")
         except Exception as exc:

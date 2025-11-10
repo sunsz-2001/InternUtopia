@@ -21,7 +21,16 @@ import NavSchema
 
 from omni.metropolis.utils.config_file.core import ConfigFile
 from omni.metropolis.utils.config_file.util import ConfigFileError
-from omni.isaac.matterport.scripts import import_matterport_asset
+
+# Optional import: matterport may not be available in all Isaac Sim versions
+try:
+    from omni.isaac.matterport.scripts import import_matterport_asset
+    MATTERPORT_AVAILABLE = True
+except ImportError:
+    MATTERPORT_AVAILABLE = False
+    import_matterport_asset = None
+    carb.log_warn("omni.isaac.matterport is not available. Matterport scene import will be disabled.")
+
 # Removed redundant direct imports; collision/ground handled in importer
 from .data_generation.data_generation import DataGeneration
 from .randomization.camera_randomizer import CameraRandomizer, LidarCameraRandomizer
@@ -1206,6 +1215,11 @@ class SimulationManager:
         完整准备Matterport场景，包括导入、碰撞、地面、NavMesh
         完成后触发ASSETS_LOADED事件，复用现有的资产加载流程
         """
+        # Check if Matterport is available
+        if not MATTERPORT_AVAILABLE:
+            carb.log_error("Cannot import Matterport scene: omni.isaac.matterport extension is not available in this Isaac Sim version.")
+            return
+
         try:
             # Step 1: Import Matterport asset (honor ground plane config directly)
             gp_enabled = True
