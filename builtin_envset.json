@@ -1,0 +1,60 @@
+{
+  "version": "0.1",
+  "scenarios": [
+    {
+      "id": "builtin_warehouse",
+      "scene": {
+        "category": "Builtin",
+        "type": "usd_stage",
+        "usd_path": "/home/ubuntu/sunsz/IsaacAssets/Environments/Simple_Warehouse/full_warehouse.usd",
+        "root_prim_path": "/World",
+        "navmesh_root_prim_path": "/World",
+        "notes": "Builtin Isaac Sim warehouse scene"
+      },
+      "navmesh": {
+        "include_volume_parent": "/World/NavMesh",
+        "z_padding": 2.0,
+        "agent_radius": 10.0,
+        "min_include_volume_size": {
+          "xy": 10.0,
+          "z": 3.0
+        },
+        "spawn_min_separation_m": 2.0
+      },
+      "robots": {
+        "entries": [
+          {
+            "type": "carter_v1",
+            "label": "keyboard_carter",
+            "spawn_path": "/World/carter_v1",
+            "usd_path": "/home/ubuntu/sunsz/IsaacAssets/Robots/NVIDIA/Carter/carter_v1.usd",
+            "initial_pose": {
+              "position": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "orientation_deg": 0.0
+            },
+            "control": {
+              "mode": "keyboard_diff_drive",
+              "module": "tools.teleop.carter_keyboard",
+              "entry": "launch",
+              "params": {
+                "left_joint": "left_wheel",
+                "right_joint": "right_wheel",
+                "wheel_radius": 0.24,
+                "track_width": 0.54,
+                "base_velocity": 0.6,
+                "base_turn_rate": 1.2,
+                "shift_multiplier": 3.0,
+                "ctrl_multiplier": 0.3
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
+
