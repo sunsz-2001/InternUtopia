@@ -452,7 +452,8 @@ class SimulationManager:
             character_paths=character_paths,
             collider_config=collider_cfg,
         )
-        self._virtual_human_collider_mgr.activate()
+        # 立即应用碰撞体，不等待timeline启动，避免虚拟人物在物理启动时下滑
+        self._virtual_human_collider_mgr.activate(apply_immediately=True)
 
     async def _spawn_envset_robots(self):
         if not self._env_scene_config:

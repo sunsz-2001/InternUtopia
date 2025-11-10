@@ -116,13 +116,27 @@ class VirtualHumanColliderApplier:
             self._apply_once()
             self.deactivate()
 
-    def activate(self):
+    def activate(self, apply_immediately: bool = False):
+        """
+        Activate the collider applier.
+        
+        Args:
+            apply_immediately: If True, apply colliders immediately instead of waiting for timeline play event.
+                              This is useful when you want to set up physics before timeline starts.
+        """
         if self._subscription is not None:
             return
+        
+        # 如果要求立即应用，或者timeline已经在播放，立即应用
+        if apply_immediately or self._timeline.is_playing():
+            self._apply_once()
+            # 如果timeline已经在播放，不需要订阅事件
+            if self._timeline.is_playing():
+                return
+        
+        # 否则订阅timeline事件，在timeline启动时应用
         stream = self._timeline.get_timeline_event_stream()
         self._subscription = stream.create_subscription_to_pop(self._on_timeline_event)
-        if self._timeline.is_playing():
-            self._apply_once()
 
     def deactivate(self):
         if self._subscription is not None:

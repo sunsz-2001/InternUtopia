@@ -107,6 +107,14 @@ class EnvsetStandaloneRunner:
         # Reset and start
         self._runner.reset()
 
+        # 等待场景和对象完全初始化
+        print("[EnvsetStandalone] Waiting for scene and objects to initialize...")
+        self._wait_for_initialization()
+
+        # Warm-up物理仿真，让系统稳定
+        print("[EnvsetStandalone] Warming up physics simulation...")
+        self._runner.warm_up(steps=10, render=False, physics=True)
+
         if self._args.run_data:
             self._init_data_generation()
             self._run_data_generation()
@@ -292,6 +300,25 @@ class EnvsetStandaloneRunner:
         if not self._args.no_play:
             self._start_timeline()
             self._main_loop()
+
+    def _wait_for_initialization(self):
+        """等待场景和对象完全初始化"""
+        import carb
+        from omni.isaac.core.simulation_context import SimulationContext
+        
+        # 使用SimulationContext的step方法来等待几帧
+        # 这样可以确保USD系统处理完所有变更，但物理仿真还未启动
+        try:
+            world = self._runner._world if hasattr(self._runner, '_world') else None
+            if world:
+                # 渲染几帧但不启动物理，让场景完全加载
+                for _ in range(5):
+                    SimulationContext.render(world)
+                carb.log_info("[EnvsetStandalone] Scene initialization wait completed")
+            else:
+                carb.log_warn("[EnvsetStandalone] World not available, skipping initialization wait")
+        except Exception as e:
+            carb.log_warn(f"[EnvsetStandalone] Initialization wait failed: {e}, continuing anyway")
 
     def _start_timeline(self):
         import omni.timeline
