@@ -8,4 +8,11 @@ def import_extensions():
     import internutopia_extension.tasks
 
 
-from .extension import *
+# Note: The extension module is located at internutopia_extension/envset/extension.py
+# and is intended for Isaac Sim Omniverse Kit extension loading.
+# It's not needed for standalone script execution.
+try:
+    from .envset.extension import *
+except ImportError:
+    # Running in standalone mode, extension not required
+    pass
