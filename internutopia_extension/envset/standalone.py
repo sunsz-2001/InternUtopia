@@ -143,7 +143,17 @@ class EnvsetStandaloneRunner:
         try:
             from omni.isaac.core.utils.extensions import enable_extension
 
-            # Core envset dependencies
+            # Core envset dependencies (based on extension.toml dependencies)
+            enable_extension("omni.usd")
+            enable_extension("omni.anim.retarget.core")
+            enable_extension("omni.kit.scripting")
+            enable_extension("omni.kit.mesh.raycast")  # Required for raycast functionality
+            enable_extension("omni.services.pip_archive")
+            enable_extension("isaacsim.sensors.camera")
+            enable_extension("isaacsim.sensors.physics")
+            enable_extension("isaacsim.sensors.rtx")
+            enable_extension("isaacsim.storage.native")
+            enable_extension("isaacsim.core.utils")
             enable_extension("omni.metropolis.utils")
             enable_extension("omni.anim.navigation.schema")
             enable_extension("omni.anim.navigation.core")
@@ -152,7 +162,6 @@ class EnvsetStandaloneRunner:
             enable_extension("isaacsim.anim.robot")
             enable_extension("omni.replicator.core")
             enable_extension("isaacsim.replicator.incident")
-            enable_extension("omni.kit.mesh")  # Required for raycast functionality
 
             # Optional: Matterport (may not be available in all Isaac Sim versions)
             try:
