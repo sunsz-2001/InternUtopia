@@ -21,6 +21,18 @@
         },
         "spawn_min_separation_m": 2.0
       },
+      "virtual_humans": {
+        "category": "Builtin",
+        "count": 0,
+        "name_sequence": [],
+        "assets": {},
+        "asset_root": {
+          "path": "/home/ubuntu/sunsz/IsaacAssets/People/Characters",
+          "fallback": ""
+        },
+        "spawn_points": [],
+        "routes": []
+      },
       "robots": {
         "entries": [
           {
