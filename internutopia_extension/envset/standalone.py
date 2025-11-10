@@ -443,6 +443,71 @@ class EnvsetStandaloneRunner:
 
         return actions
 
+    def _wait_for_articulations_initialized(self, max_wait_frames: int = 100):
+        """
+        等待所有 articulation 初始化完成。
+        
+        Args:
+            max_wait_frames: 最大等待帧数，超过此帧数后放弃等待
+        
+        Returns:
+            bool: 如果所有 articulation 都已初始化返回 True，否则返回 False
+        """
+        import carb
+        from omni.isaac.core.simulation_context import SimulationContext
+        
+        if not self._runner:
+            return False
+        
+        world = self._runner._world if hasattr(self._runner, '_world') else None
+        if not world:
+            carb.log_warn("[EnvsetStandalone] World not available, cannot wait for articulations")
+            return False
+        
+        carb.log_info("[EnvsetStandalone] Waiting for all articulations to initialize...")
+        
+        for frame_idx in range(max_wait_frames):
+            # 渲染一帧，让物理系统有机会初始化
+            SimulationContext.render(world)
+            
+            # 检查所有任务的机器人
+            all_initialized = True
+            uninitialized_robots = []
+            
+            for task_name, task in self._runner.current_tasks.items():
+                if not hasattr(task, 'robots') or not task.robots:
+                    continue
+                
+                for robot_name, robot in task.robots.items():
+                    if not hasattr(robot, 'articulation'):
+                        continue
+                    
+                    if not hasattr(robot.articulation, 'handles_initialized'):
+                        continue
+                    
+                    if not robot.articulation.handles_initialized:
+                        all_initialized = False
+                        uninitialized_robots.append(f"{task_name}/{robot_name}")
+            
+            if all_initialized:
+                carb.log_info(f"[EnvsetStandalone] All articulations initialized after {frame_idx + 1} frames")
+                return True
+            
+            # 每10帧打印一次状态
+            if frame_idx % 10 == 0 and uninitialized_robots:
+                carb.log_info(
+                    f"[EnvsetStandalone] Waiting for articulations... "
+                    f"({frame_idx + 1}/{max_wait_frames} frames) "
+                    f"Uninitialized: {', '.join(uninitialized_robots[:5])}"
+                    f"{'...' if len(uninitialized_robots) > 5 else ''}"
+                )
+        
+        carb.log_warn(
+            f"[EnvsetStandalone] Some articulations not initialized after {max_wait_frames} frames. "
+            f"Continuing anyway, but errors may occur."
+        )
+        return False
+
     def _main_loop(self):
         import carb
 
@@ -453,6 +518,15 @@ class EnvsetStandaloneRunner:
         # Initialize keyboard control if needed
         self._init_keyboard()
 
+        # 检查 timeline 是否正在播放，如果是则等待 articulation 初始化
+        import omni.timeline
+        timeline = omni.timeline.get_timeline_interface()
+        if timeline.is_playing():
+            carb.log_info("[EnvsetStandalone] Timeline is playing, waiting for articulations to initialize...")
+            self._wait_for_articulations_initialized()
+        else:
+            carb.log_info("[EnvsetStandalone] Timeline is paused. Articulations will initialize when timeline starts.")
+
         deadline = None
         if self._args.hold_seconds is not None:
             deadline = time.monotonic() + max(0.0, self._args.hold_seconds)
@@ -462,9 +536,21 @@ class EnvsetStandaloneRunner:
             f"(keyboard={'enabled' if self._keyboard else 'disabled'})"
         )
 
+        # 在主循环中持续检查 timeline 状态，如果从暂停变为播放，等待初始化
+        timeline_was_playing = timeline.is_playing()
+        
         while sim_app.is_running() and not self._shutdown_flag:
             if deadline is not None and time.monotonic() >= deadline:
                 break
+
+            # 检查 timeline 状态变化：如果从暂停变为播放，等待 articulation 初始化
+            timeline_is_playing = timeline.is_playing()
+            if timeline_is_playing and not timeline_was_playing:
+                carb.log_info("[EnvsetStandalone] Timeline started, waiting for articulations to initialize...")
+                self._wait_for_articulations_initialized()
+                timeline_was_playing = True
+            elif not timeline_is_playing:
+                timeline_was_playing = False
 
             # Collect actions (keyboard input or empty for autonomous)
             actions = self._collect_actions()
