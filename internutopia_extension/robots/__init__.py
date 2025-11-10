@@ -1,5 +1,6 @@
 from internutopia_extension.robots import (
     aliengo,
+    carter_v1,
     franka,
     g1,
     gr1,

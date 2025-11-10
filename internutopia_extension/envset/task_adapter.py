@@ -128,7 +128,9 @@ class EnvsetTaskAugmentor:
         type_name = (spec.type or "").lower()
 
         # Differential drive robots
-        if type_name in {"carter", "carter_v1", "jetbot", "differential_drive"}:
+        if type_name == "carter_v1":
+            return "CarterV1Robot"
+        if type_name in {"carter", "jetbot", "differential_drive"}:
             return "JetbotRobot"
 
         # Quadruped robots
@@ -156,9 +158,17 @@ class EnvsetTaskAugmentor:
         robot_type = (spec.type or "").lower()
 
         # Differential drive robots (jetbot, carter, etc.)
+        # Carter V1 and other differential drive robots use the same controller structure
         if robot_type in {"carter", "carter_v1", "jetbot", "differential_drive"}:
-            wheel_radius = EnvsetTaskAugmentor._safe_float(params.get("wheel_radius"), fallback=0.03)
-            wheel_base = EnvsetTaskAugmentor._safe_float(params.get("track_width"), fallback=0.1125)
+            # Carter V1 has different default wheel parameters than Jetbot
+            if robot_type == "carter_v1":
+                default_wheel_radius = 0.24
+                default_wheel_base = 0.54
+            else:
+                default_wheel_radius = 0.03
+                default_wheel_base = 0.1125
+            wheel_radius = EnvsetTaskAugmentor._safe_float(params.get("wheel_radius"), fallback=default_wheel_radius)
+            wheel_base = EnvsetTaskAugmentor._safe_float(params.get("track_width"), fallback=default_wheel_base)
             forward_speed = EnvsetTaskAugmentor._safe_float(params.get("base_velocity"), fallback=1.0)
             rotation_speed = EnvsetTaskAugmentor._safe_float(params.get("base_turn_rate"), fallback=1.0)
 
