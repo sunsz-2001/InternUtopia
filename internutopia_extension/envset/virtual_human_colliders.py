@@ -56,14 +56,42 @@ class VirtualHumanColliderApplier:
         self._applied_paths.clear()
 
     def _iter_existing_character_roots(self) -> Iterable[str]:
+        """
+        Iterate over existing character root prims.
+        If the specified path exists, use it. Otherwise, search for character prims
+        under the characters parent path to handle cases where the actual structure
+        differs from the expected path.
+        """
         stage = omni.usd.get_context().get_stage()
         if stage is None:
             return
+        
+        found_paths: Set[str] = set()
+        
+        # First, try the exact paths specified
         for raw_path in self._character_paths:
             sdf_path = Sdf.Path(raw_path)
             prim = stage.GetPrimAtPath(sdf_path)
-            if prim:
+            if prim and prim.IsValid():
+                found_paths.add(str(prim.GetPath()))
                 yield str(prim.GetPath())
+        
+        # If no exact matches found, search for character prims under the characters parent path
+        if not found_paths:
+            from .stage_util import CharacterUtil, PrimPaths
+            character_parent = PrimPaths.characters_parent_path()
+            character_roots = CharacterUtil.get_characters_root_in_stage()
+            for root_prim in character_roots:
+                root_path = str(root_prim.GetPath())
+                # Check if this root matches any of our expected names
+                root_name = root_path.split("/")[-1]
+                for expected_path in self._character_paths:
+                    expected_name = expected_path.split("/")[-1]
+                    if root_name == expected_name or root_path == expected_path:
+                        if root_path not in found_paths:
+                            found_paths.add(root_path)
+                            yield root_path
+                            break
 
     def _ensure_physics_scene(self):
         stage = omni.usd.get_context().get_stage()

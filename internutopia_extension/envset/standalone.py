@@ -111,17 +111,21 @@ class EnvsetStandaloneRunner:
         print("[EnvsetStandalone] Waiting for scene and objects to initialize...")
         self._wait_for_initialization()
 
-        # Warm-up物理仿真，让系统稳定
-        print("[EnvsetStandalone] Warming up physics simulation...")
-        self._runner.warm_up(steps=10, render=False, physics=True)
+        # 等待异步资产加载完成（如果有SimulationManager）
+        print("[EnvsetStandalone] Waiting for async asset loading to complete...")
+        self._wait_for_async_loading()
+
+        # Warm-up物理仿真，让系统稳定（但不启动timeline）
+        print("[EnvsetStandalone] Warming up physics simulation (timeline will not auto-start)...")
+        # 注意：warm_up需要timeline已启动才能工作，所以这里先跳过
+        # 用户需要手动启动timeline后再进行warm-up
 
         if self._args.run_data:
             self._init_data_generation()
             self._run_data_generation()
         else:
-            if not self._args.no_play:
-                print("[EnvsetStandalone] Starting timeline...")
-                self._start_timeline()
+            # 不再自动启动timeline，等待用户手动启动
+            print("[EnvsetStandalone] Ready. Timeline is paused. Please start timeline manually when ready.")
             print("[EnvsetStandalone] Entering main loop...")
             self._main_loop()
 
@@ -319,6 +323,32 @@ class EnvsetStandaloneRunner:
                 carb.log_warn("[EnvsetStandalone] World not available, skipping initialization wait")
         except Exception as e:
             carb.log_warn(f"[EnvsetStandalone] Initialization wait failed: {e}, continuing anyway")
+
+    def _wait_for_async_loading(self):
+        """等待异步资产加载完成"""
+        import carb
+        import asyncio
+        
+        try:
+            # 等待几帧，让异步任务有机会完成
+            import omni.kit.app
+            app = omni.kit.app.get_app()
+            if app:
+                async def _wait_frames():
+                    for _ in range(10):  # 等待更多帧
+                        await app.next_update_async()
+                
+                try:
+                    asyncio.run(_wait_frames())
+                    carb.log_info("[EnvsetStandalone] Async loading wait completed")
+                except Exception as e:
+                    carb.log_warn(f"[EnvsetStandalone] Async wait failed: {e}, continuing anyway")
+            else:
+                carb.log_warn("[EnvsetStandalone] App not available, skipping async wait")
+        except ImportError:
+            carb.log_warn("[EnvsetStandalone] SimulationManager not available, skipping async wait")
+        except Exception as e:
+            carb.log_warn(f"[EnvsetStandalone] Async loading wait failed: {e}, continuing anyway")
 
     def _start_timeline(self):
         import omni.timeline

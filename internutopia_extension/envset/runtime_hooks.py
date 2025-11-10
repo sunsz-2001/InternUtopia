@@ -163,6 +163,7 @@ class EnvsetTaskRuntime:
         fallback_asset = next(iter(assets.values()), None)
 
         spawned_any = False
+        spawned_prims = []
         for idx in range(count):
             name = cls._resolve_character_name(name_sequence, idx)
             asset = assets.get(name) or fallback_asset
@@ -175,9 +176,12 @@ class EnvsetTaskRuntime:
             prim = CharacterUtil.load_character_usd_to_stage(usd_path, pos, rot, name)
             if prim and prim.IsValid():
                 cls._exclude_from_navmesh(prim.GetPrimPath())
+                spawned_prims.append(prim)
                 spawned_any = True
 
         if spawned_any:
+            # 立即应用碰撞体到spawned的虚拟人物
+            cls._apply_colliders_to_spawned_characters(spawned_prims, envset_cfg)
             cls._setup_character_behaviors()
             cls._configure_arrival_guard(envset_cfg, vh_cfg)
             cls._vh_spawned = True
@@ -289,6 +293,40 @@ class EnvsetTaskRuntime:
             return float(value)
         except (TypeError, ValueError):
             return fallback
+
+    @classmethod
+    def _apply_colliders_to_spawned_characters(cls, spawned_prims, envset_cfg):
+        """立即应用碰撞体到spawned的虚拟人物"""
+        if not spawned_prims:
+            return
+        
+        try:
+            from .virtual_human_colliders import VirtualHumanColliderApplier, ColliderConfig
+            
+            vh_cfg = envset_cfg.get("virtual_humans") or {}
+            approx_shape = vh_cfg.get("collider_shape") or vh_cfg.get("approximation_shape") or "convexHull"
+            kinematic_flag = vh_cfg.get("collider_kinematic")
+            if kinematic_flag is None:
+                kinematic_flag = True
+            
+            collider_cfg = ColliderConfig(
+                approximation_shape=str(approx_shape),
+                kinematic=bool(kinematic_flag)
+            )
+            
+            # 构建实际spawned的prim路径列表
+            character_paths = [str(prim.GetPrimPath()) for prim in spawned_prims if prim and prim.IsValid()]
+            
+            if character_paths:
+                applier = VirtualHumanColliderApplier(
+                    character_paths=character_paths,
+                    collider_config=collider_cfg,
+                )
+                # 立即应用，不等待timeline
+                applier.activate(apply_immediately=True)
+                carb.log_info(f"[EnvsetRuntime] Applied colliders to {len(character_paths)} spawned characters")
+        except Exception as exc:
+            carb.log_warn(f"[EnvsetRuntime] Failed to apply colliders to spawned characters: {exc}")
 
     @staticmethod
     def _exclude_from_navmesh(prim_path):
