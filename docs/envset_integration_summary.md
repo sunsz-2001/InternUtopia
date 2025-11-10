@@ -200,7 +200,24 @@ python -m internutopia_extension.envset.standalone \
 - `task_configs` 必须包含至少一个task条目（即使内容为空），envset会将场景、机器人等信息注入到这个task中
 - 不能使用完全空的 `task_configs: []`，因为EnvsetTaskAugmentor会迭代现有task来注入envset数据
 
-## 6. 后续可选优化
+## 6. 自定义 Extension 集成
+
+如果你有自己的 Isaac Sim extension（带 `extension.toml`），可以通过以下方式集成：
+
+1. **配置文件方式**（推荐）：在 YAML 中添加 `simulator.extension_folders`
+   ```yaml
+   simulator:
+     extension_folders:
+       - /path/to/your/extension
+   ```
+
+2. **代码启用方式**：在 `standalone.py` 中调用 `enable_extension("your.extension.name")`
+
+3. **环境变量方式**：设置 `ISAACLAB_EXTENSION_PATHS` 环境变量
+
+详细说明请参考：[自定义 Extension 集成指南](custom_extensions_guide.md)
+
+## 7. 后续可选优化
 
 1. **配置Schema验证**：使用Pydantic或JSON Schema验证envset.json格式
 2. **文档完善**：补充CLI/文档，说明envset JSON中各字段的详细约定

@@ -143,6 +143,9 @@ class EnvsetStandaloneRunner:
             enable_extension("omni.anim.navigation.meshtools")
             enable_extension("omni.anim.people")
             enable_extension("isaacsim.anim.robot")
+            enable_extension("omni.isaac.matterport")
+            enable_extension("omni.replicator.core")
+            enable_extension("isaacsim.replicator.incident")
 
             carb.log_info("[EnvsetStandalone] Required extensions enabled")
         except Exception as exc:

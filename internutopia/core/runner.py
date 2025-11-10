@@ -481,9 +481,20 @@ class SimulatorRunner:
         headless = self.config.simulator.headless
         native = self.config.simulator.native
         webrtc = self.config.simulator.webrtc
-        self._simulation_app = SimulationApp(
-            {'headless': headless, 'anti_aliasing': 0, 'hide_ui': False, 'multi_gpu': False}
-        )
+
+        # Build launch config with optional extension paths
+        launch_config = {
+            'headless': headless,
+            'anti_aliasing': 0,
+            'hide_ui': False,
+            'multi_gpu': False
+        }
+
+        # Add custom extension paths if specified
+        if hasattr(self.config.simulator, 'extension_folders') and self.config.simulator.extension_folders:
+            launch_config['extension_folders'] = self.config.simulator.extension_folders
+
+        self._simulation_app = SimulationApp(launch_config)
         self._simulation_app._carb_settings.set('/physics/cooking/ujitsoCollisionCooking', False)
         log.debug('SimulationApp init done')
 

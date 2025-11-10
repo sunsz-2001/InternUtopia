@@ -7,6 +7,9 @@ simulator:
   use_fabric: false
   headless: false  # Can be overridden by --headless flag
   rendering_interval: 1
+  # extension_folders:  # Optional: paths to custom Isaac Sim extensions
+  #   - /path/to/your/extension
+  #   - /another/extension/path
 
 # env_num will be determined by task_configs
 env_num: 1
