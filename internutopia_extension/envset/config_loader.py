@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -28,7 +26,6 @@ from .task_adapter import EnvsetTaskAugmentor
 class EnvsetConfigBundle:
     """Result of merging the base config with an envset scenario."""
 
-    merged_config_path: Path
     config: Dict[str, Any]
     envset: Dict[str, Any]
     scenario_id: str
@@ -50,9 +47,7 @@ class EnvsetConfigLoader:
         # Store scenario_id for use in _apply_envset
         self._selected_scenario_id = scenario_id
         merged_config = self._apply_envset(config, scenario_data)
-        merged_path = self._write_temp_yaml(merged_config)
         return EnvsetConfigBundle(
-            merged_config_path=merged_path,
             config=merged_config,
             envset=envset,
             scenario_id=scenario_id,
@@ -213,11 +208,3 @@ class EnvsetConfigLoader:
             return float(value)
         except (TypeError, ValueError):
             return None
-
-    def _write_temp_yaml(self, data: Dict[str, Any]) -> Path:
-        fd, tmp_path = tempfile.mkstemp(prefix="envset_cfg_", suffix=".yaml")
-        os.close(fd)
-        path = Path(tmp_path)
-        with path.open("w", encoding="utf-8") as fp:
-            yaml.safe_dump(data, fp, sort_keys=False)
-        return path

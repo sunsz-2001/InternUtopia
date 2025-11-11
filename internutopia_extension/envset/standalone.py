@@ -79,7 +79,6 @@ class EnvsetStandaloneRunner:
         self._keyboard = None
         self._keyboard_robots = []
         self._shutdown_flag = False
-        self._temp_paths = [self._bundle.merged_config_path]
 
     def request_shutdown(self):
         self._shutdown_flag = True
@@ -134,11 +133,6 @@ class EnvsetStandaloneRunner:
         if self._runner and self._runner.simulation_app:
             try:
                 self._runner.simulation_app.close()
-            except Exception:
-                pass
-        for path in self._temp_paths:
-            try:
-                path.unlink(missing_ok=True)
             except Exception:
                 pass
 
@@ -229,100 +223,11 @@ class EnvsetStandaloneRunner:
         if extension_folders:
             sim_section["extension_folders"] = extension_folders
 
-        # Convert controller dicts back to objects before pydantic parsing
-        # This ensures pydantic preserves the correct ControllerCfg subclass types
-        merged = self._convert_controller_dicts_to_objects(merged)
+        # Note: task_adapter now returns RobotCfg/ControllerCfg objects directly
+        # No need for dict->object conversion, Pydantic handles it automatically
 
         config_model = _parse_config_model(merged)
         return config_model
-
-    def _convert_controller_dicts_to_objects(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        将字典中的控制器配置转换回对象，确保 pydantic 解析时保持正确的子类类型。
-        这样可以像 demo 一样直接使用对象，而不是字典。
-        """
-        # Import all ControllerCfg subclasses to build type mapping
-        try:
-            from internutopia_extension.configs.controllers import (
-                AliengoMoveBySpeedControllerCfg,
-                DifferentialDriveControllerCfg,
-                FrankaMocapTeleopControllerCfg,
-                G1MoveBySpeedControllerCfg,
-                GR1MoveBySpeedControllerCfg,
-                GR1TeleOpControllerCfg,
-                GripperControllerCfg,
-                H1MoveBySpeedControllerCfg,
-                InverseKinematicsControllerCfg,
-                JointControllerCfg,
-                LayoutEditMocapControllerCfg,
-                MoveAlongPathPointsControllerCfg,
-                MoveToPointBySpeedControllerCfg,
-                RecoverControllerCfg,
-                RMPFlowControllerCfg,
-                RotateControllerCfg,
-            )
-            
-            # Build type -> class mapping
-            # Map controller type strings to their corresponding ControllerCfg subclasses
-            type_to_class = {
-                'AliengoMoveBySpeedController': AliengoMoveBySpeedControllerCfg,
-                'DifferentialDriveController': DifferentialDriveControllerCfg,
-                'FrankaMocapTeleopController': FrankaMocapTeleopControllerCfg,
-                'G1MoveBySpeedController': G1MoveBySpeedControllerCfg,
-                'GR1MoveBySpeedController': GR1MoveBySpeedControllerCfg,
-                'GR1TeleOpController': GR1TeleOpControllerCfg,
-                'GripperController': GripperControllerCfg,
-                'H1MoveBySpeedController': H1MoveBySpeedControllerCfg,
-                'InverseKinematicsController': InverseKinematicsControllerCfg,
-                'JointController': JointControllerCfg,
-                'LayoutEditMocapController': LayoutEditMocapControllerCfg,
-                'MoveAlongPathPointsController': MoveAlongPathPointsControllerCfg,
-                'MoveToPointBySpeedController': MoveToPointBySpeedControllerCfg,
-                'RecoverController': RecoverControllerCfg,
-                'RMPFlowController': RMPFlowControllerCfg,
-                'RotateController': RotateControllerCfg,
-            }
-        except ImportError:
-            # If imports fail, return as-is (fallback to dict)
-            return config_dict
-        
-        def convert_controller_dict(ctrl_dict: Dict[str, Any]) -> Any:
-            """递归转换单个控制器字典为对象"""
-            if not isinstance(ctrl_dict, dict):
-                return ctrl_dict
-            
-            ctrl_type = ctrl_dict.get('type')
-            if not ctrl_type:
-                return ctrl_dict
-            
-            # Find the corresponding ControllerCfg subclass
-            cfg_class = type_to_class.get(ctrl_type)
-            if not cfg_class:
-                # If no matching class found, use base ControllerCfg
-                from internutopia.core.config.robot import ControllerCfg
-                cfg_class = ControllerCfg
-            
-            # Recursively convert sub_controllers
-            if 'sub_controllers' in ctrl_dict and ctrl_dict['sub_controllers']:
-                sub_controllers = [convert_controller_dict(sub) for sub in ctrl_dict['sub_controllers']]
-                ctrl_dict = dict(ctrl_dict)
-                ctrl_dict['sub_controllers'] = sub_controllers
-            
-            # Create the object using pydantic's model_validate or parse_obj
-            try:
-                return cfg_class.model_validate(ctrl_dict)  # pydantic v2
-            except AttributeError:
-                return cfg_class.parse_obj(ctrl_dict)  # pydantic v1
-        
-        # Recursively convert controllers in task_configs -> robots -> controllers
-        if 'task_configs' in config_dict:
-            for task in config_dict['task_configs']:
-                if 'robots' in task and task['robots']:
-                    for robot in task['robots']:
-                        if 'controllers' in robot and robot['controllers']:
-                            robot['controllers'] = [convert_controller_dict(ctrl) for ctrl in robot['controllers']]
-        
-        return config_dict
 
     def _create_runner(self, config: Config) -> SimulatorRunner:
         task_manager = create_task_config_manager(config)
@@ -407,10 +312,16 @@ class EnvsetStandaloneRunner:
             self._main_loop()
 
     def _wait_for_initialization(self):
-        """等待场景和对象完全初始化"""
+        """等待场景和物理完全初始化
+
+        根据 Isaac Sim 最佳实践：
+        - 执行 2 个 physics steps 让刚体状态传播和稳定
+        - 执行 12 个 render steps 让传感器/相机数据更新
+        这可以防止物体在 reset 后穿透地板或出现不稳定行为
+        """
         import carb
         from omni.isaac.core.simulation_context import SimulationContext
-        
+
         # 确保timeline保持暂停
         try:
             import omni.timeline
@@ -420,21 +331,40 @@ class EnvsetStandaloneRunner:
                 carb.log_info("[EnvsetStandalone] Timeline was playing, paused it during initialization")
         except Exception:
             pass
-        
-        # 使用SimulationContext的step方法来等待几帧
-        # 这样可以确保USD系统处理完所有变更，但物理仿真还未启动
+
+        # 获取 World 实例
         try:
             world = self._runner._world if hasattr(self._runner, '_world') else None
-            if world:
-                # 渲染几帧但不启动物理，让场景完全加载
-                for _ in range(5):
-                    SimulationContext.render(world)
-                carb.log_info("[EnvsetStandalone] Scene initialization wait completed")
-            else:
+            if not world:
                 carb.log_warn("[EnvsetStandalone] World not available, skipping initialization wait")
+                return
+
+            # Step 1: 执行 physics steps 让物理状态传播和稳定
+            # 这对防止物体穿透地板至关重要
+            carb.log_info("[EnvsetStandalone] Starting physics warm-up (2 steps)...")
+            for i in range(2):
+                try:
+                    world.step(render=False)
+                    carb.log_info(f"[EnvsetStandalone] Physics warm-up step {i+1}/2 completed")
+                except Exception as e:
+                    carb.log_warn(f"[EnvsetStandalone] Physics step {i+1} failed: {e}")
+
+            # Step 2: 执行 render steps 让传感器数据更新
+            # 这对相机和其他传感器的正确初始化很重要
+            carb.log_info("[EnvsetStandalone] Starting render warm-up (12 steps)...")
+            for i in range(12):
+                try:
+                    SimulationContext.render(world)
+                    if i % 3 == 0:  # 每 3 帧输出一次日志
+                        carb.log_info(f"[EnvsetStandalone] Render warm-up step {i+1}/12")
+                except Exception as e:
+                    carb.log_warn(f"[EnvsetStandalone] Render step {i+1} failed: {e}")
+
+            carb.log_info("[EnvsetStandalone] Scene initialization wait completed (2 physics + 12 render steps)")
+
         except Exception as e:
-            carb.log_warn(f"[EnvsetStandalone] Initialization wait failed: {e}, continuing anyway")
-        
+            carb.log_error(f"[EnvsetStandalone] Initialization wait failed: {e}, continuing anyway")
+
         # 再次确保timeline保持暂停
         try:
             import omni.timeline

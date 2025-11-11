@@ -86,42 +86,62 @@ class EnvsetTaskAugmentor:
 
     @staticmethod
     def _inject_robots(task: Dict[str, Any], robots: tuple[RobotSpec, ...], robot_prefix: str):
+        """Inject robot configurations into task dict as RobotCfg objects."""
         if not robots:
             return
         robot_list = task.setdefault("robots", [])
-        existing_names = {str(entry.get("name")) for entry in robot_list}
+
+        # Extract existing names (handle both dict and RobotCfg objects for compatibility)
+        existing_names = set()
+        for entry in robot_list:
+            if isinstance(entry, dict):
+                existing_names.add(str(entry.get("name")))
+            else:
+                existing_names.add(str(entry.name))
+
         for idx, spec in enumerate(robots):
-            entry = EnvsetTaskAugmentor._build_robot_entry(spec, robot_prefix, idx)
-            if not entry:
+            robot_cfg = EnvsetTaskAugmentor._build_robot_entry(spec, robot_prefix, idx)
+            if not robot_cfg:
                 continue
-            name = entry.get("name")
-            if name in existing_names:
-                entry["name"] = f"{name}_{idx}"
-            existing_names.add(entry["name"])
-            robot_list.append(entry)
+
+            # Check for name conflicts and resolve
+            if robot_cfg.name in existing_names:
+                robot_cfg.name = f"{robot_cfg.name}_{idx}"
+
+            existing_names.add(robot_cfg.name)
+            robot_list.append(robot_cfg)  # Append RobotCfg object directly
 
     @staticmethod
-    def _build_robot_entry(spec: RobotSpec, robot_prefix: str, idx: int) -> Dict[str, Any] | None:
+    def _build_robot_entry(spec: RobotSpec, robot_prefix: str, idx: int):
+        """Build RobotCfg object from envset RobotSpec.
+
+        Returns: RobotCfg object (Pydantic model) or None
+        """
+        from internutopia.core.config import RobotCfg
+
         robot_type = EnvsetTaskAugmentor._resolve_robot_type(spec)
         if not robot_type:
             return None
+
         name = spec.label or f"{robot_prefix}_{idx}"
-        entry: Dict[str, Any] = {
-            "name": name,
-            "type": robot_type,
-            "prim_path": spec.spawn_path or f"/World/Robots/{name}",
-            "usd_path": spec.usd_path,
-            "position": list(spec.initial_position),
-        }
-        quat = EnvsetTaskAugmentor._orientation_from_deg(spec.initial_orientation_deg)
-        if quat:
-            entry["orientation"] = quat
         controllers = EnvsetTaskAugmentor._build_robot_controllers(spec, name)
-        if controllers:
-            entry["controllers"] = controllers
-        if spec.control:
-            entry.setdefault("extra", {})["envset_control"] = asdict(spec.control)
-        return entry
+
+        # Build RobotCfg object directly
+        robot_cfg = RobotCfg(
+            name=name,
+            type=robot_type,
+            prim_path=spec.spawn_path or f"/World/Robots/{name}",
+            usd_path=spec.usd_path,
+            position=tuple(spec.initial_position),
+            orientation=EnvsetTaskAugmentor._orientation_from_deg(spec.initial_orientation_deg),
+            controllers=controllers if controllers else None,
+        )
+
+        # Store envset control metadata if needed (via extra fields - Pydantic allows this)
+        if spec.control and hasattr(robot_cfg, '__pydantic_extra__'):
+            robot_cfg.__pydantic_extra__ = {"envset_control": asdict(spec.control)}
+
+        return robot_cfg
 
     @staticmethod
     def _resolve_robot_type(spec: RobotSpec) -> str | None:
@@ -153,12 +173,18 @@ class EnvsetTaskAugmentor:
         return "JetbotRobot" if spec.control else None
 
     @staticmethod
-    def _build_robot_controllers(spec: RobotSpec, name: str) -> List[Dict[str, Any]]:
+    def _build_robot_controllers(spec: RobotSpec, name: str) -> List:  # Returns List[ControllerCfg] objects
+        """Build controller configuration objects for the robot."""
+        from internutopia.core.config.robot import ControllerCfg
+        from internutopia_extension.configs.controllers import (
+            DifferentialDriveControllerCfg,
+            MoveToPointBySpeedControllerCfg,
+        )
+
         params = spec.control.params if spec.control else {}
         robot_type = (spec.type or "").lower()
 
         # Differential drive robots (jetbot, carter, etc.)
-        # Carter V1 and other differential drive robots use the same controller structure
         if robot_type in {"carter", "carter_v1", "jetbot", "differential_drive"}:
             # Carter V1 has different default wheel parameters than Jetbot
             if robot_type == "carter_v1":
@@ -167,68 +193,66 @@ class EnvsetTaskAugmentor:
             else:
                 default_wheel_radius = 0.03
                 default_wheel_base = 0.1125
+
             wheel_radius = EnvsetTaskAugmentor._safe_float(params.get("wheel_radius"), fallback=default_wheel_radius)
             wheel_base = EnvsetTaskAugmentor._safe_float(params.get("track_width"), fallback=default_wheel_base)
             forward_speed = EnvsetTaskAugmentor._safe_float(params.get("base_velocity"), fallback=1.0)
             rotation_speed = EnvsetTaskAugmentor._safe_float(params.get("base_turn_rate"), fallback=1.0)
 
-            drive_cfg = {
-                "name": f"{name}_drive",
-                "type": "DifferentialDriveController",
-                "wheel_radius": wheel_radius,
-                "wheel_base": wheel_base,
-            }
-            goto_cfg = {
-                "name": f"{name}_move",
-                "type": "MoveToPointBySpeedController",
-                "forward_speed": forward_speed,
-                "rotation_speed": rotation_speed,
-                "threshold": 0.1,
-                "sub_controllers": [drive_cfg],
-            }
+            # Build Pydantic objects directly
+            drive_cfg = DifferentialDriveControllerCfg(
+                name=f"{name}_drive",
+                wheel_radius=wheel_radius,
+                wheel_base=wheel_base,
+            )
+            goto_cfg = MoveToPointBySpeedControllerCfg(
+                name=f"{name}_move",
+                forward_speed=forward_speed,
+                rotation_speed=rotation_speed,
+                threshold=0.1,
+                sub_controllers=[drive_cfg],
+            )
             return [goto_cfg]
 
-        # Legged and humanoid robots - use pre-defined controller configurations
-        # These include the full policy-based controllers with correct weights and joint mappings
+        # Legged and humanoid robots - use pre-defined configurations with parameter overrides
         if robot_type == "aliengo" and aliengo_move_to_point_cfg is not None:
-            return [EnvsetTaskAugmentor._controller_cfg_to_dict(aliengo_move_to_point_cfg, params)]
+            return [EnvsetTaskAugmentor._clone_and_override_controller(aliengo_move_to_point_cfg, params)]
 
         if robot_type in {"h1", "human"} and h1_move_to_point_cfg is not None:
-            return [EnvsetTaskAugmentor._controller_cfg_to_dict(h1_move_to_point_cfg, params)]
+            return [EnvsetTaskAugmentor._clone_and_override_controller(h1_move_to_point_cfg, params)]
 
         if robot_type == "g1" and g1_move_to_point_cfg is not None:
-            return [EnvsetTaskAugmentor._controller_cfg_to_dict(g1_move_to_point_cfg, params)]
+            return [EnvsetTaskAugmentor._clone_and_override_controller(g1_move_to_point_cfg, params)]
 
         if robot_type == "gr1" and gr1_move_to_point_cfg is not None:
-            return [EnvsetTaskAugmentor._controller_cfg_to_dict(gr1_move_to_point_cfg, params)]
+            return [EnvsetTaskAugmentor._clone_and_override_controller(gr1_move_to_point_cfg, params)]
 
-        # Manipulation robots (franka) - no controllers, use robot's built-in
+        # Manipulation robots (franka) - no controllers
         if robot_type in {"franka"}:
             return []
 
-        # Fallback: return empty to avoid misconfiguration
-        # If pre-defined configs are not available, robot will have no controllers
+        # Fallback: return empty
         return []
 
     @staticmethod
-    def _controller_cfg_to_dict(controller_cfg, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert ControllerCfg object to dictionary and optionally override parameters."""
-        # Use pydantic's dict() or model_dump() depending on version
-        try:
-            cfg_dict = controller_cfg.model_dump()  # pydantic v2
-        except AttributeError:
-            cfg_dict = controller_cfg.dict()  # pydantic v1
+    def _clone_and_override_controller(controller_cfg, params: Dict[str, Any]):
+        """Clone controller config and override parameters from envset.
+
+        Returns: ControllerCfg object (Pydantic model)
+        """
+        # Deep clone to avoid modifying the original predefined config
+        cloned = controller_cfg.model_copy(deep=True)
 
         # Override speed parameters from envset if provided
         forward_speed = EnvsetTaskAugmentor._safe_float(params.get("base_velocity"), fallback=None)
         rotation_speed = EnvsetTaskAugmentor._safe_float(params.get("base_turn_rate"), fallback=None)
 
-        if forward_speed is not None and "forward_speed" in cfg_dict:
-            cfg_dict["forward_speed"] = forward_speed
-        if rotation_speed is not None and "rotation_speed" in cfg_dict:
-            cfg_dict["rotation_speed"] = rotation_speed
+        if forward_speed is not None and hasattr(cloned, "forward_speed"):
+            cloned.forward_speed = forward_speed
+        if rotation_speed is not None and hasattr(cloned, "rotation_speed"):
+            cloned.rotation_speed = rotation_speed
 
-        return cfg_dict
+        return cloned
 
     @staticmethod
     def _orientation_from_deg(yaw_deg: float | None):
