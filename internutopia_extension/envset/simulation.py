@@ -466,13 +466,36 @@ class SimulationManager:
         if stage is None:
             return
 
+        # Find existing env_id by checking /World/env_X paths
+        # This matches InternUtopia's path structure
+        env_id = None
+        robots_root_path = "/robots"  # Default robots_root_path from TaskCfg
+        for check_id in range(10):  # Check up to 10 environments
+            env_path = f"/World/env_{check_id}"
+            env_prim = stage.GetPrimAtPath(env_path)
+            if env_prim and env_prim.IsValid():
+                env_id = check_id
+                break
+        
+        # If no env found, default to env_0 (InternUtopia typically starts with env_0)
+        if env_id is None:
+            env_id = 0
+            carb.log_info(f"[EnvSet] No existing env found, defaulting to env_{env_id}")
+
         spawned = False
         for entry in entries:
             spawn_path = entry.get("spawn_path")
             if not spawn_path:
                 continue
-            print(f"[DEBUG] [EnvSet] Processing robot entry at {spawn_path}")
-            prim = stage.GetPrimAtPath(spawn_path)
+            
+            # Convert spawn_path to InternUtopia's path format
+            # spawn_path is relative (e.g., "/aliengo"), we need to build full path
+            # Format: /World/env_{env_id}/robots{spawn_path}
+            # This matches InternUtopia's setup_offset_for_assets logic
+            full_prim_path = f"/World/env_{env_id}{robots_root_path}{spawn_path}"
+            
+            print(f"[DEBUG] [EnvSet] Processing robot entry: spawn_path={spawn_path}, full_path={full_prim_path}")
+            prim = stage.GetPrimAtPath(full_prim_path)
             prim_valid = prim.IsValid()
 
             # Resolve USD path only when we need to create
@@ -484,7 +507,8 @@ class SimulationManager:
                 if not usd_path:
                     carb.log_warn(f"[EnvSet] Missing usd_path for robot entry at {spawn_path}.")
                     continue
-                prim = prims.create_prim(spawn_path, "Xform", usd_path=usd_path)
+                # Create prim at InternUtopia's expected path
+                prim = prims.create_prim(full_prim_path, "Xform", usd_path=usd_path)
                 prim_valid = prim.IsValid()
 
             # Apply/override initial pose even when prim already exists
@@ -515,12 +539,12 @@ class SimulationManager:
                             except Exception:
                                 parsed_scale = scale_override
                         if not StageUtil.set_prim_scale(prim, parsed_scale):
-                            carb.log_warn(f"[EnvSet] Invalid scale override for {spawn_path}: {scale_override}")
+                            carb.log_warn(f"[EnvSet] Invalid scale override for {full_prim_path}: {scale_override}")
 
                     StageUtil.recover_xformOpType(original_xform_order_setting)
                     spawned = True
             except Exception as exc:  # noqa: BLE001
-                carb.log_warn(f"[EnvSet] Failed to set transform for {spawn_path}: {exc}")
+                carb.log_warn(f"[EnvSet] Failed to set transform for {full_prim_path}: {exc}")
 
         if spawned:
             print("[DEBUG] [EnvSet] Robots spawned; waiting a frame before registration.")

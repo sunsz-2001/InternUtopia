@@ -126,11 +126,23 @@ class EnvsetTaskAugmentor:
         name = spec.label or f"{robot_prefix}_{idx}"
         controllers = EnvsetTaskAugmentor._build_robot_controllers(spec, name)
 
+        # Convert spawn_path to relative path for InternUtopia's path system
+        # InternUtopia will prepend /World/env_{env_id}/robots to this path
+        # So if spawn_path is "/aliengo", we should use "/aliengo" (with leading slash)
+        # This will result in /World/env_0/robots/aliengo after setup_offset_for_assets
+        if spec.spawn_path:
+            # Ensure spawn_path starts with / for proper path construction
+            # setup_offset_for_assets will concatenate: /World/env_X + /robots + spawn_path
+            prim_path = spec.spawn_path if spec.spawn_path.startswith('/') else f'/{spec.spawn_path}'
+        else:
+            # Fallback: use robot name as relative path
+            prim_path = f'/{name}'
+
         # Build RobotCfg object directly
         robot_cfg = RobotCfg(
             name=name,
             type=robot_type,
-            prim_path=spec.spawn_path or f"/World/Robots/{name}",
+            prim_path=prim_path,
             usd_path=spec.usd_path,
             position=tuple(spec.initial_position),
             orientation=EnvsetTaskAugmentor._orientation_from_deg(spec.initial_orientation_deg),
