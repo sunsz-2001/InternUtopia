@@ -123,6 +123,7 @@ class SimulatorRunner:
               and metric updates for tasks that have been marked as finished.
         """
         """ ================ TODO: Key optimization interval ================= """
+        print(f"[DEBUG] Runner step called with {len(actions)} actions")
         terminated_status = []
         reward = []
 
@@ -148,6 +149,7 @@ class SimulatorRunner:
                         log.error('task_name     : %s', task_name)
                         log.error('robot_name    : %s', name)
                         log.error('current_tasks : %s', [i for i in self.current_tasks.keys()])
+                        print(f"[DEBUG] Exception in apply_action: {e}")
                         raise e
 
         self.render_trigger += 1
@@ -166,6 +168,7 @@ class SimulatorRunner:
             if task.is_done():
                 self.finished_tasks.add(task.name)
                 log.info(f'Task {task.name} finished.')
+                print(f"[DEBUG] Task {task.name} marked as done by is_done()")
                 metrics_results = task.calculate_metrics()
                 if self.metrics_save_path == 'console':
                     print(json.dumps(metrics_results, indent=4))
@@ -347,6 +350,7 @@ class SimulatorRunner:
         Raises:
             RuntimeError: If a task specified in `reset_tasks` isn't found in the current tasks.
         """
+        print(f"[DEBUG] _next_episodes: reset_tasks={reset_tasks}")
         from isaacsim.core.simulation_manager import SimulationManager
 
         env_id_list = []
@@ -415,8 +419,25 @@ class SimulatorRunner:
             self.task_name_to_env_id_map[task.name] = task.env_id
             self.env_id_to_task_name_map[task.env_id] = task.name
 
+        print("[DEBUG] Before initialize_physics")
+        SimulationManager.initialize_physics()
+        print("[DEBUG] After initialize_physics")
+
+        sim_view = SimulationManager.get_physics_sim_view()
+        print(f"[DEBUG] sim_view after get_physics_sim_view: {sim_view}")
+        if sim_view is None:
+            raise RuntimeError("Failed to initialize physics simulation view after initialize_physics()")
+
         # create sim_view
+        print("[DEBUG] Before _create_simulation_view")
         SimulationManager._create_simulation_view('reset')
+        print("[DEBUG] After _create_simulation_view")
+
+        sim_view_after = SimulationManager.get_physics_sim_view()
+        world_sim_view = self._world.physics_sim_view
+        print(f"[DEBUG] sim_view after _create_simulation_view: {sim_view_after}")
+        print(f"[DEBUG] world.physics_sim_view: {world_sim_view}")
+        print(f"[DEBUG] Are they the same? {sim_view_after is world_sim_view}")
 
         # restore the state of envs that haven't been reset
         if reset_tasks:
@@ -424,9 +445,19 @@ class SimulatorRunner:
                 if t.name in _new_tasks_names:
                     continue
                 t.restore_info()
+        
+        print(f"[DEBUG] Before _finalize, world.physics_sim_view: {self._world.physics_sim_view}")
+        print(f"[DEBUG] Task robots created: {len(_new_tasks) if '_new_tasks' in locals() else 'N/A'}")
+        for task in _new_tasks:
+            print(f"[DEBUG] Task {task.name} has {len(task.robots)} robots")
+            for robot_name, robot in task.robots.items():
+                print(f"[DEBUG] Robot {robot_name}: articulation={robot.articulation is not None}")
 
-        self._scene.unwrap()._finalize(self._world.physics_sim_view)  # noqa
-
+        psv = self._world.physics_sim_view
+        print(f"[DEBUG] physics_sim_view in _finalize: {psv}")
+        print("[DEBUG] Before _finalize")
+        self._scene.unwrap()._finalize(psv)  # noqa
+        print("[DEBUG] After _finalize")
         # post_reset for new tasks
         for task in _new_tasks:
             task.post_reset()
@@ -467,23 +498,53 @@ class SimulatorRunner:
         log.info(f'simulator params: physics dt={physics_dt}, rendering dt={rendering_dt}, use_fabric={use_fabric}')
         from omni.isaac.core import World
 
+        print("[DEBUG] Before World creation")
         self._world: World = World(
             physics_dt=physics_dt,
             rendering_dt=rendering_dt,
             stage_units_in_meters=1.0,
             sim_params={'use_fabric': use_fabric},
         )
-
+        print("[DEBUG] After World creation")
+        
     def setup_isaacsim(self):
         # Init Isaac Sim
         from isaacsim import SimulationApp  # noqa
+        import os
 
         headless = self.config.simulator.headless
         native = self.config.simulator.native
         webrtc = self.config.simulator.webrtc
-        self._simulation_app = SimulationApp(
-            {'headless': headless, 'anti_aliasing': 0, 'hide_ui': False, 'multi_gpu': False}
-        )
+
+        # Build launch config with optional extension paths
+        launch_config = {
+            'headless': headless,
+            'anti_aliasing': 0,
+            'hide_ui': False,
+            'multi_gpu': False
+        }
+
+        # Add custom extension paths if specified
+        # Isaac Sim uses different parameter names in different versions:
+        # - 'extension_folders' (list)
+        # - 'extra_extension_folders' (list)
+        # Try both for compatibility
+        if hasattr(self.config.simulator, 'extension_folders') and self.config.simulator.extension_folders:
+            ext_paths = self.config.simulator.extension_folders
+
+            # Set environment variable as fallback (Isaac Sim checks this)
+            if 'ISAAC_EXTRA_EXT_PATH' in os.environ:
+                existing = os.environ['ISAAC_EXTRA_EXT_PATH']
+                os.environ['ISAAC_EXTRA_EXT_PATH'] = os.pathsep.join([existing] + ext_paths)
+            else:
+                os.environ['ISAAC_EXTRA_EXT_PATH'] = os.pathsep.join(ext_paths)
+
+            # Try different parameter names
+            launch_config['extension_folders'] = ext_paths
+
+            log.info(f'Custom extension paths configured: {ext_paths}')
+
+        self._simulation_app = SimulationApp(launch_config)
         self._simulation_app._carb_settings.set('/physics/cooking/ujitsoCollisionCooking', False)
         log.debug('SimulationApp init done')
 

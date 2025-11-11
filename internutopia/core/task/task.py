@@ -100,7 +100,9 @@ class BaseTask(ABC):
                     except Exception as e:
                         log.error(f'Fail to create IRigidBody at {prim.GetPath()}: {e}')
 
+        print(f"[DEBUG] Task {self.name}: Before init_robots")
         self.robots = init_robots(self.config, self._scene)
+        print(f"[DEBUG] Task {self.name}: After init_robots, created {len(self.robots)} robots")
         self.objects = init_objects(self.config, self._scene)
         self.loaded = True
         self._apply_envset_runtime_hooks()

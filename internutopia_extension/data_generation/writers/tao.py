@@ -8,9 +8,9 @@ license agreement from NVIDIA CORPORATION is strictly prohibited.
 """
 
 import carb
-from isaacsim.replicator.agent.core.data_generation.annotator_data_processor import AnnotatorDataProcessor
-from isaacsim.replicator.agent.core.data_generation.object_info_manager import AgentInfo, ObjectInfo
-from isaacsim.replicator.agent.core.settings import WriterSetting
+from internutopia_extension.data_generation.annotator_data_processor import AnnotatorDataProcessor
+from internutopia_extension.data_generation.object_info_manager import AgentInfo, ObjectInfo
+from internutopia_extension.envset.settings import WriterSetting
 from omni.replicator.core import AnnotatorRegistry, BackendDispatch, WriterRegistry
 from omni.replicator.core.scripts.writers_default.tools import *
 

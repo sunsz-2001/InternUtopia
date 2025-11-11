@@ -1,0 +1,25 @@
+# Minimal InternUtopia config for envset standalone runner
+# Most configuration comes from envset.json, this provides base settings
+
+simulator:
+  physics_dt: 0.00416666667  # 1/240
+  rendering_dt: 0.00416666667  # 1/240
+  use_fabric: false
+  headless: false  # Can be overridden by --headless flag
+  rendering_interval: 1
+  # extension_folders:  # Optional: paths to custom Isaac Sim extensions
+  #   - /path/to/your/extension
+  #   - /another/extension/path
+
+# env_num will be determined by task_configs
+env_num: 1
+
+# Task configurations: envset will augment this minimal task with scene, robots, etc.
+task_configs:
+  - type: FiniteStepTask
+    max_steps: 3000
+    robots: []  # Will be populated from envset.json
+    scene_asset_path: null  # Will be populated from envset.json
+
+# Scene configuration will be merged from envset.json
+scene: {}

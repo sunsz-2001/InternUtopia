@@ -29,6 +29,9 @@ class AliengoRobot(BaseRobot):
         self._robot_scale = np.array([1.0, 1.0, 1.0])
         if config.scale is not None:
             self._robot_scale = np.array(config.scale)
+        print(f"[DEBUG] AliengoRobot {config.name}: Creating articulation")
+        print(f"[DEBUG] prim_path: {config.prim_path}")
+        print(f"[DEBUG] usd_path: {usd_path}")
         self.articulation = IArticulation.create(
             prim_path=config.prim_path,
             name=config.name,
@@ -37,6 +40,24 @@ class AliengoRobot(BaseRobot):
             usd_path=usd_path,
             scale=self._robot_scale,
         )
+        print(f"[DEBUG] AliengoRobot {config.name}: Articulation created: {self.articulation is not None}")
+
+        # 检查 articulation 的关键属性
+        if self.articulation:
+            isaac_art = self.articulation.unwrap()
+            print(f"[DEBUG] Articulation prim path: {isaac_art.prim.GetPath()}")
+
+            # 检查是否有 ArticulationRootAPI
+            from pxr import UsdPhysics
+            has_articulation_api = isaac_art.prim.HasAPI(UsdPhysics.ArticulationRootAPI)
+            print(f"[DEBUG] Has ArticulationRootAPI: {has_articulation_api}")
+
+            # 检查关节数量
+            try:
+                dof_count = isaac_art.num_dof
+                print(f"[DEBUG] Articulation DOF count: {dof_count}")
+            except Exception as e:
+                print(f"[DEBUG] Error getting DOF count: {e}")
 
     def post_reset(self):
         super().post_reset()

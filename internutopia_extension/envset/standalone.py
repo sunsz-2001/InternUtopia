@@ -7,24 +7,17 @@ import asyncio
 import copy
 import time
 from pathlib import Path
+from typing import Any, Dict
 
-import carb
+# Note: Do NOT import Isaac Sim modules (carb, omni, etc.) here!
+# They must be imported AFTER SimulationApp is initialized.
 
 from internutopia.core.config import Config
 from internutopia.core.runner import SimulatorRunner
 from internutopia.core.task_config_manager.base import create_task_config_manager
 
 from internutopia_extension import import_extensions
-from internutopia_extension.envset.agent_manager import AgentManager
 from internutopia_extension.envset.config_loader import EnvsetConfigLoader
-from internutopia_extension.envset.patches import install_safe_simtimes_guard
-from internutopia_extension.envset.settings import AssetPaths, Infos
-from internutopia_extension.envset.simulation import (
-    ENVSET_AUTOSTART_SETTING,
-    ENVSET_PATH_SETTING,
-    ENVSET_SCENARIO_SETTING,
-)
-from internutopia_extension.envset.world_utils import bootstrap_world_if_needed
 
 
 def _parse_args() -> argparse.Namespace:
@@ -33,6 +26,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--envset", required=True, type=Path, help="Path to envset JSON file.")
     parser.add_argument("--scenario", default=None, help="Scenario id inside envset JSON.")
     parser.add_argument("--headless", action="store_true", help="Force headless SimulationApp.")
+    parser.add_argument(
+        "--extension-path",
+        action="append",
+        dest="extension_paths",
+        help="Additional extension search path (can be specified multiple times). "
+             "Example: --extension-path /path/to/isaaclab/source",
+    )
     parser.add_argument(
         "--skip-isaac-assets",
         action="store_true",
@@ -79,25 +79,108 @@ class EnvsetStandaloneRunner:
         self._keyboard = None
         self._keyboard_robots = []
         self._shutdown_flag = False
-        self._temp_paths = [self._bundle.merged_config_path]
 
     def request_shutdown(self):
         self._shutdown_flag = True
 
+    def _debug_articulation_paths(self):
+        """调试：检查articulation路径和状态"""
+        import omni
+        from pxr import Usd, Sdf
+
+        stage = omni.usd.get_context().get_stage()
+
+        # 1) 打印预期路径是否存在
+        expect = "/World/env_0/robots/aliengo"
+        prim = stage.GetPrimAtPath(Sdf.Path(expect))
+        print(f"[DEBUG] expect prim exists? {prim.IsValid()} type={prim.GetTypeName() if prim.IsValid() else None}")
+
+        # 2) 用 tensors 列举当前全场景 articulation 根
+        try:
+            from isaacsim.core.simulation_manager import SimulationManager
+            psv = SimulationManager.get_physics_sim_view()
+        except Exception:
+            try:
+                import omni.physics.tensors as phys
+                psv = phys.create_simulation_view("numpy")
+            except Exception:
+                print("[DEBUG] Cannot create physics simulation view")
+                return
+
+        try:
+            all_view = psv.create_articulation_view("/*")  # 列举全部
+            print(f"[DEBUG] articulations count = {all_view.count}")
+            try:
+                # 有的版本能拿到 dof_paths 或 body_paths，帮助反推根
+                if hasattr(all_view, 'dof_paths') and all_view.count > 0:
+                    print(f"[DEBUG] sample dof_paths (first 3) = {all_view.dof_paths[:3]}")
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[DEBUG] Cannot create articulation view: {e}")
+
+        # 3) 简单枚举 /World/env_0 下的子树，肉眼确认
+        def _list(prefix="/World/env_0"):
+            if not stage.GetPrimAtPath(prefix).IsValid():
+                print(f"[DEBUG] no such prefix: {prefix}")
+                return
+            print(f"[DEBUG] children under {prefix}:")
+            it = Usd.PrimRange(stage.GetPrimAtPath(prefix))
+            n = 0
+            for p in it:
+                if p.IsA(Usd.Prim):
+                    path = p.GetPath().pathString
+                    if "/robots" in path or "Aliengo" in path or "aliengo" in path:
+                        print(f"   {path} {p.GetTypeName()} {p.GetAppliedSchemas()}")
+                        n += 1
+                        if n > 10:  # 限制输出
+                            break
+
+        _list("/World")
+        _list("/World/env_0")
+
     def run(self):
-        self._prepare_runtime_settings()
+        print("[EnvsetStandalone] Building config model...")
+        # Build config first (before SimulationApp)
         config_model = self._build_config_model()
+
+        print("[EnvsetStandalone] Importing extensions...")
+        # Import extensions (prepares robot/controller registrations)
         import_extensions()
+
+        print("[EnvsetStandalone] Creating runner (initializing SimulationApp)...")
+        # Create runner (this initializes SimulationApp)
         self._runner = self._create_runner(config_model)
+
+        print("[EnvsetStandalone] Preparing runtime settings...")
+        # Now we can use Isaac Sim modules (carb, etc.)
+        self._prepare_runtime_settings()
+
+        print("[EnvsetStandalone] Post-runner initialization...")
         self._post_runner_initialize()
+
+        # 调试：检查articulation路径和状态
+        print("[EnvsetStandalone] Checking articulation paths and status...")
+        self._debug_articulation_paths()
+
+        print("[EnvsetStandalone] Resetting environment...")
+        # Reset and start
         self._runner.reset()
+
+        # 等待场景和对象完全初始化
+        print("[EnvsetStandalone] Waiting for scene and objects to initialize...")
+        self._wait_for_initialization()
+
         if self._args.run_data:
             self._init_data_generation()
             self._run_data_generation()
         else:
-            if not self._args.no_play:
-                self._start_timeline()
+            # 不再自动启动timeline，等待用户手动启动
+            print("[EnvsetStandalone] Ready. Timeline is paused. Please start timeline manually when ready.")
+            print("[EnvsetStandalone] Entering main loop...")
             self._main_loop()
+
+        print("[EnvsetStandalone] Run completed.")
 
     def shutdown(self):
         if self._runner and self._runner.simulation_app:
@@ -105,15 +188,58 @@ class EnvsetStandaloneRunner:
                 self._runner.simulation_app.close()
             except Exception:
                 pass
-        for path in self._temp_paths:
-            try:
-                path.unlink(missing_ok=True)
-            except Exception:
-                pass
 
     # ---------- internal helpers ----------
 
     def _prepare_runtime_settings(self):
+        # Import Isaac Sim modules here, after runner initialization
+        import carb
+        import carb.settings
+
+        # Enable required extensions before importing envset modules
+        print("[EnvsetStandalone] Enabling required extensions...")
+        try:
+            from omni.isaac.core.utils.extensions import enable_extension
+
+            # Core envset dependencies (based on extension.toml dependencies)
+            enable_extension("omni.usd")
+            enable_extension("omni.anim.retarget.core")
+            enable_extension("omni.kit.scripting")
+            enable_extension("omni.kit.mesh.raycast")  # Required for raycast functionality
+            enable_extension("omni.services.pip_archive")
+            enable_extension("isaacsim.sensors.camera")
+            enable_extension("isaacsim.sensors.physics")
+            enable_extension("isaacsim.sensors.rtx")
+            enable_extension("isaacsim.storage.native")
+            enable_extension("isaacsim.core.utils")
+            enable_extension("omni.metropolis.utils")
+            enable_extension("omni.anim.navigation.schema")
+            enable_extension("omni.anim.navigation.core")
+            enable_extension("omni.anim.navigation.meshtools")
+            enable_extension("omni.anim.people")
+            enable_extension("isaacsim.anim.robot")
+            enable_extension("omni.replicator.core")
+            enable_extension("isaacsim.replicator.incident")
+
+            # Optional: Matterport (may not be available in all Isaac Sim versions)
+            try:
+                enable_extension("omni.isaac.matterport")
+                carb.log_info("[EnvsetStandalone] Matterport extension enabled")
+            except Exception:
+                carb.log_warn("[EnvsetStandalone] Matterport extension not available - Matterport scene import will be disabled")
+
+            carb.log_info("[EnvsetStandalone] Required extensions enabled")
+        except Exception as exc:
+            carb.log_warn(f"[EnvsetStandalone] Failed to enable some extensions: {exc}")
+
+        # Now safe to import envset modules that depend on these extensions
+        from internutopia_extension.envset.settings import AssetPaths, Infos
+        from internutopia_extension.envset.simulation import (
+            ENVSET_AUTOSTART_SETTING,
+            ENVSET_PATH_SETTING,
+            ENVSET_SCENARIO_SETTING,
+        )
+
         settings_iface = carb.settings.get_settings()
         settings_iface.set(ENVSET_PATH_SETTING, str(self._envset_path))
         settings_iface.set(ENVSET_AUTOSTART_SETTING, False)
@@ -141,6 +267,18 @@ class EnvsetStandaloneRunner:
         sim_section = merged.setdefault("simulator", {})
         if self._args.headless:
             sim_section["headless"] = True
+
+        # Add extension paths from command line and/or config
+        extension_folders = sim_section.get("extension_folders", [])
+        if self._args.extension_paths:
+            # Extend with CLI-provided paths
+            extension_folders.extend(self._args.extension_paths)
+        if extension_folders:
+            sim_section["extension_folders"] = extension_folders
+
+        # Note: task_adapter now returns RobotCfg/ControllerCfg objects directly
+        # No need for dict->object conversion, Pydantic handles it automatically
+
         config_model = _parse_config_model(merged)
         return config_model
 
@@ -150,12 +288,19 @@ class EnvsetStandaloneRunner:
         return runner
 
     def _post_runner_initialize(self):
+        # Import Isaac Sim modules (can now be safely imported)
+        from internutopia_extension.envset.world_utils import bootstrap_world_if_needed
+        from internutopia_extension.envset.agent_manager import AgentManager
+        from internutopia_extension.envset.patches import install_safe_simtimes_guard
+
         bootstrap_world_if_needed()
         AgentManager.get_instance()
         install_safe_simtimes_guard()
 
     def _init_data_generation(self):
         """Initialize DataGeneration for recording simulation data."""
+        import carb
+
         try:
             from internutopia_extension.data_generation.data_generation import DataGeneration
         except ImportError as e:
@@ -189,6 +334,8 @@ class EnvsetStandaloneRunner:
 
     def _run_data_generation(self):
         """Run data generation asynchronously."""
+        import carb
+
         if self._data_gen is None:
             carb.log_error("[EnvsetStandalone] DataGeneration not initialized")
             return
@@ -201,11 +348,45 @@ class EnvsetStandaloneRunner:
             carb.log_error(f"[EnvsetStandalone] Data generation failed: {e}")
             import traceback
             carb.log_error(traceback.format_exc())
-
-        # After data generation completes, continue with normal simulation if requested
-        if not self._args.no_play:
-            self._start_timeline()
             self._main_loop()
+
+    def _wait_for_initialization(self):
+        import carb
+        from omni.isaac.core.simulation_context import SimulationContext
+
+        print("[EnvsetStandalone] Waiting for initialization...")
+        # 获取 World 实例
+        try:
+            world = self._runner._world if hasattr(self._runner, '_world') else None
+            if not world:
+                carb.log_warn("[EnvsetStandalone] World not available, skipping initialization wait")
+                return
+
+            # Step 1: 执行 physics steps 让物理状态传播和稳定
+            # 这对防止物体穿透地板至关重要
+            print("[EnvsetStandalone] Starting physics warm-up (2 steps)...")
+            for i in range(2):
+                try:
+                    world.step(render=False)
+                    print(f"[EnvsetStandalone] Physics warm-up step {i+1}/2 completed")
+                except Exception as e:
+                    print(f"[EnvsetStandalone] Physics step {i+1} failed: {e}")
+
+            # Step 2: 执行 render steps 让传感器数据更新
+            # 这对相机和其他传感器的正确初始化很重要
+            print("[EnvsetStandalone] Starting render warm-up (12 steps)...")
+            for i in range(12):
+                try:
+                    SimulationContext.render(world)
+                    if i % 3 == 0:  # 每 3 帧输出一次日志
+                        print(f"[EnvsetStandalone] Render warm-up step {i+1}/12")
+                except Exception as e:
+                    print(f"[EnvsetStandalone] Render step {i+1} failed: {e}")
+
+            print("[EnvsetStandalone] Scene initialization wait completed (2 physics + 12 render steps)")
+
+        except Exception as e:
+            print(f"[EnvsetStandalone] Initialization wait failed: {e}, continuing anyway")
 
     def _start_timeline(self):
         import omni.timeline
@@ -215,14 +396,18 @@ class EnvsetStandaloneRunner:
 
     def _detect_keyboard_control(self):
         """Detect if any robot requires keyboard control."""
+        import carb
+
         scenario = self._bundle.scenario
         robots_cfg = scenario.get("robots", {})
         robot_entries = robots_cfg.get("entries", [])
 
+        print(f"[DEBUG] Detecting keyboard control, found {len(robot_entries)} robots")
         keyboard_robots = []
         for robot in robot_entries:
             control = robot.get("control", {})
             control_mode = (control.get("mode") or "").lower()
+            print(f"[DEBUG] Robot {robot.get('label', 'unknown')}: control_mode='{control_mode}'")
 
             if "keyboard" in control_mode:
                 robot_name = robot.get("label") or robot.get("type", "unknown")
@@ -230,6 +415,7 @@ class EnvsetStandaloneRunner:
 
                 # Map robot type to controller name
                 controller_name = self._get_controller_name_for_robot(robot_type)
+                print(f"[DEBUG] Mapped robot_type '{robot_type}' to controller '{controller_name}'")
                 if controller_name:
                     keyboard_robots.append({
                         "name": robot_name,
@@ -237,7 +423,10 @@ class EnvsetStandaloneRunner:
                         "type": robot_type
                     })
                     carb.log_info(f"[EnvsetStandalone] Detected keyboard control for robot: {robot_name}")
+                else:
+                    print(f"[DEBUG] No controller mapping for robot_type '{robot_type}'")
 
+        print(f"[DEBUG] Total keyboard robots detected: {len(keyboard_robots)}")
         return keyboard_robots
 
     def _get_controller_name_for_robot(self, robot_type: str) -> str | None:
@@ -253,17 +442,30 @@ class EnvsetStandaloneRunner:
 
     def _init_keyboard(self):
         """Initialize keyboard interaction if needed."""
+        import carb
+
+        print("[DEBUG] Starting keyboard initialization...")
         self._keyboard_robots = self._detect_keyboard_control()
+        print(f"[DEBUG] Keyboard robots after detection: {self._keyboard_robots}")
 
         if self._keyboard_robots:
             try:
+                print("[DEBUG] Importing KeyboardInteraction...")
                 from internutopia_extension.interactions.keyboard import KeyboardInteraction
+                print("[DEBUG] Creating KeyboardInteraction...")
                 self._keyboard = KeyboardInteraction()
                 carb.log_info(f"[EnvsetStandalone] Keyboard control initialized for {len(self._keyboard_robots)} robot(s)")
+                print("[DEBUG] Keyboard initialization successful")
             except ImportError as e:
                 carb.log_error(f"[EnvsetStandalone] Failed to import KeyboardInteraction: {e}")
+                print(f"[DEBUG] Keyboard import failed: {e}")
                 self._keyboard = None
                 self._keyboard_robots = []
+
+        if self._keyboard:
+            print("[EnvsetStandalone] Keyboard control ready!")
+            print("[EnvsetStandalone] Make sure Isaac Sim window has focus to receive keyboard input")
+            print("[EnvsetStandalone] Use I/K for forward/back, J/L for left/right, U/O for up/down")
 
     def _collect_actions(self):
         """Collect actions from keyboard or return empty actions for autonomous mode."""
@@ -273,9 +475,11 @@ class EnvsetStandaloneRunner:
 
         # Read keyboard input
         command = self._keyboard.get_input()
+        print(f"[DEBUG] Keyboard command: {command}")
         x_speed = float(command[0] - command[1])  # I/K keys
         y_speed = float(command[2] - command[3])  # J/L keys
         z_speed = float(command[4] - command[5])  # U/O keys
+        print(f"[DEBUG] Computed speeds: x={x_speed}, y={y_speed}, z={z_speed}")
 
         # Build actions for all keyboard-controlled robots
         actions = []
@@ -288,37 +492,236 @@ class EnvsetStandaloneRunner:
 
         return actions
 
+    def _wait_for_articulations_initialized(self, max_wait_frames: int = 100):
+        """
+        等待所有 articulation 初始化完成，同时检查 NavMesh 烘培状态。
+        
+        Args:
+            max_wait_frames: 最大等待帧数，超过此帧数后放弃等待
+        
+        Returns:
+            bool: 如果所有 articulation 都已初始化返回 True，否则返回 False
+        """
+        import carb
+        from omni.isaac.core.simulation_context import SimulationContext
+        
+        if not self._runner:
+            return False
+        
+        world = self._runner._world if hasattr(self._runner, '_world') else None
+        if not world:
+            carb.log_warn("[EnvsetStandalone] World not available, cannot wait for articulations")
+            return False
+        
+        # 尝试获取 NavMesh 接口
+        navmesh_interface = None
+        try:
+            import omni.anim.navigation.core as nav
+            navmesh_interface = nav.acquire_interface()
+        except Exception:
+            pass
+        
+        carb.log_info("[EnvsetStandalone] Waiting for all articulations to initialize...")
+        if navmesh_interface:
+            carb.log_info("[EnvsetStandalone] Also checking NavMesh baking status...")
+        
+        navmesh_ready = False
+        
+        for frame_idx in range(max_wait_frames):
+            # 渲染一帧，让物理系统有机会初始化
+            SimulationContext.render(world)
+            
+            # 检查所有任务的机器人
+            all_initialized = True
+            uninitialized_robots = []
+            
+            for task_name, task in self._runner.current_tasks.items():
+                if not hasattr(task, 'robots') or not task.robots:
+                    continue
+                
+                for robot_name, robot in task.robots.items():
+                    if not hasattr(robot, 'articulation'):
+                        continue
+                    
+                    if not hasattr(robot.articulation, 'handles_initialized'):
+                        continue
+                    
+                    if not robot.articulation.handles_initialized:
+                        all_initialized = False
+                        uninitialized_robots.append(f"{task_name}/{robot_name}")
+            
+            # 检查 NavMesh 状态
+            navmesh_status_msg = ""
+            if navmesh_interface:
+                try:
+                    navmesh = navmesh_interface.get_navmesh()
+                    if navmesh is not None:
+                        if not navmesh_ready:
+                            navmesh_ready = True
+                            try:
+                                area_count = navmesh.get_area_count()
+                                navmesh_status_msg = f", NavMesh ready (areas={area_count})"
+                            except Exception:
+                                navmesh_status_msg = ", NavMesh ready"
+                    else:
+                        navmesh_status_msg = ", NavMesh baking..."
+                except Exception:
+                    navmesh_status_msg = ", NavMesh status unknown"
+            
+            if all_initialized:
+                if navmesh_ready:
+                    carb.log_info(
+                        f"[EnvsetStandalone] All articulations initialized and NavMesh ready after {frame_idx + 1} frames"
+                    )
+                else:
+                    carb.log_info(
+                        f"[EnvsetStandalone] All articulations initialized after {frame_idx + 1} frames"
+                        f"{navmesh_status_msg}"
+                    )
+                return True
+            
+            # 每10帧打印一次状态
+            if frame_idx % 10 == 0:
+                status_parts = []
+                if uninitialized_robots:
+                    status_parts.append(
+                        f"Uninitialized robots: {', '.join(uninitialized_robots[:5])}"
+                        f"{'...' if len(uninitialized_robots) > 5 else ''}"
+                    )
+                if navmesh_status_msg:
+                    status_parts.append(navmesh_status_msg.strip(', '))
+                
+                status_str = " | ".join(status_parts) if status_parts else "Waiting..."
+                carb.log_info(
+                    f"[EnvsetStandalone] Waiting... ({frame_idx + 1}/{max_wait_frames} frames) | {status_str}"
+                )
+        
+        # 最终状态报告
+        final_status = []
+        if uninitialized_robots:
+            final_status.append(f"Some articulations not initialized: {', '.join(uninitialized_robots[:3])}")
+        if navmesh_interface:
+            try:
+                navmesh = navmesh_interface.get_navmesh()
+                if navmesh is None:
+                    final_status.append("NavMesh not ready")
+            except Exception:
+                pass
+        
+        if final_status:
+            carb.log_warn(
+                f"[EnvsetStandalone] Timeout after {max_wait_frames} frames. "
+                f"{' | '.join(final_status)}. Continuing anyway, but errors may occur."
+            )
+        else:
+            carb.log_warn(
+                f"[EnvsetStandalone] Timeout after {max_wait_frames} frames. "
+                f"Continuing anyway, but errors may occur."
+            )
+        return False
+
+    def _are_articulations_ready(self) -> bool:
+        """
+        快速检查所有 articulation 是否已初始化。
+        
+        Returns:
+            bool: 如果所有 articulation 都已初始化返回 True，否则返回 False
+        """
+        if not self._runner:
+            return False
+        
+        for task_name, task in self._runner.current_tasks.items():
+            if not hasattr(task, 'robots') or not task.robots:
+                continue
+            
+            for robot_name, robot in task.robots.items():
+                if not hasattr(robot, 'articulation'):
+                    continue
+                
+                if not hasattr(robot.articulation, 'handles_initialized'):
+                    continue
+                
+                if not robot.articulation.handles_initialized:
+                    return False
+        
+        return True
+
     def _main_loop(self):
+        import carb
+        print("[EnvsetStandalone] Entering main loop...")
         sim_app = self._runner.simulation_app if self._runner else None
         if sim_app is None:
             return
-
+        print("[EnvsetStandalone] Simulation app initialized")
         # Initialize keyboard control if needed
         self._init_keyboard()
+        print("[EnvsetStandalone] Keyboard control initialized")
+        # 检查 timeline 是否正在播放，如果是则等待 articulation 初始化
+        import omni.timeline
+        timeline = omni.timeline.get_timeline_interface()
+        if timeline.is_playing():
+            print("[EnvsetStandalone] Timeline is playing, waiting for articulations to initialize...")
+            self._wait_for_articulations_initialized()
+        else:
+            print("[EnvsetStandalone] Timeline is paused. Articulations will initialize when timeline starts.")
 
         deadline = None
         if self._args.hold_seconds is not None:
             deadline = time.monotonic() + max(0.0, self._args.hold_seconds)
 
-        carb.log_info(
+        print(
             f"[EnvsetStandalone] Entering main loop "
             f"(keyboard={'enabled' if self._keyboard else 'disabled'})"
         )
 
+        # 在主循环中持续检查 timeline 状态，如果从暂停变为播放，等待初始化
+        timeline_was_playing = timeline.is_playing()
+        
         while sim_app.is_running() and not self._shutdown_flag:
             if deadline is not None and time.monotonic() >= deadline:
                 break
 
+            # 检查 timeline 状态变化：如果从暂停变为播放，等待 articulation 初始化
+            timeline_is_playing = timeline.is_playing()
+            if timeline_is_playing and not timeline_was_playing:
+                carb.log_info("[EnvsetStandalone] Timeline started, waiting for articulations to initialize...")
+                self._wait_for_articulations_initialized()
+                timeline_was_playing = True
+            elif not timeline_is_playing:
+                timeline_was_playing = False
+
+            # 如果 timeline 正在播放，检查 articulation 是否已准备好
+            # 如果未准备好，跳过这一步，只更新应用但不调用 runner.step()
+            if timeline_is_playing:
+                if not self._are_articulations_ready():
+                    print("[EnvsetStandalone] Articulation not ready, skipping step()")
+                    # Articulation 还未准备好，只更新应用，不调用 step()
+                    sim_app.update()
+                    continue
             # Collect actions (keyboard input or empty for autonomous)
             actions = self._collect_actions()
-
             # Use runner.step() instead of sim_app.update()
             try:
                 self._runner.step(actions=actions, render=True)
             except Exception as e:
-                carb.log_error(f"[EnvsetStandalone] Error in runner.step(): {e}")
-                # Fallback to simple update on error
-                sim_app.update()
+                # 如果是 articulation 未初始化的错误，等待并重试
+                if "Failed to get root link transforms" in str(e) or "handles_initialized" in str(e):
+                    print(f"[EnvsetStandalone] Articulation not ready, waiting... Error: {e}")
+                    # 等待几帧让 articulation 初始化
+                    for _ in range(5):
+                        sim_app.update()
+                    # 再次检查，如果准备好了就继续，否则跳过这一步
+                    if self._are_articulations_ready():
+                        print("[EnvsetStandalone] Articulations ready, continuing...")
+                        continue
+                    else:
+                        print("[EnvsetStandalone] Articulations still not ready, skipping step()")
+                        sim_app.update()
+                        continue
+                else:
+                    print(f"[EnvsetStandalone] Error in runner.step(): {e}")
+                    # Fallback to simple update on error
+                    sim_app.update()
 
 
 def main():
@@ -332,7 +735,13 @@ def main():
     try:
         runner.run()
     except KeyboardInterrupt:
+        print("[EnvsetStandalone] Interrupted by user")
         runner.request_shutdown()
+    except Exception as e:
+        print(f"[EnvsetStandalone] ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
     finally:
         runner.shutdown()
 

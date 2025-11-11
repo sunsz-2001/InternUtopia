@@ -15,10 +15,10 @@ from typing import Any
 import carb
 import numpy as np
 import omni.usd
-from isaacsim.replicator.agent.core.data_generation.annotator_data_processor import AnnotatorDataProcessor
-from isaacsim.replicator.agent.core.data_generation.object_info_manager import AgentInfo, ObjectInfo
-from isaacsim.replicator.agent.core.settings import PrimPaths, WriterSetting
-from isaacsim.replicator.agent.core.stage_util import StereoCamUtil
+from internutopia_extension.data_generation.annotator_data_processor import AnnotatorDataProcessor
+from internutopia_extension.data_generation.object_info_manager import AgentInfo, ObjectInfo
+from internutopia_extension.envset.settings import PrimPaths, WriterSetting
+from internutopia_extension.envset.stage_util import StereoCamUtil
 from omni.metropolis.utils.sensor_util import SensorUtil
 from omni.replicator.core import AnnotatorRegistry, BackendDispatch, Writer, WriterRegistry
 from omni.replicator.core.scripts import functional as F

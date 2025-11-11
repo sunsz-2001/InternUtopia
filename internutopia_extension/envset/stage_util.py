@@ -206,7 +206,7 @@ class UnitScaleService:
             return 0.0
         return numeric * cls._stage_units_per_meter
 
-from .randomization.randomizer_util import RandomizerUtil
+from internutopia_extension.randomization.randomizer_util import RandomizerUtil
 from .settings import Settings, AssetPaths, PrimPaths
 
 from omni.anim.people.scripts.custom_command.populate_anim_graph import populate_anim_graph

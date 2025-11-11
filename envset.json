@@ -6,13 +6,13 @@
       "scene": {
         "category": "GRScenes",
         "type": "usd_stage",
-        "usd_path": "/home/autolab/sunsz/GRScenes/commercial_scenes/scenes/MV4AFHQKTKJZ2AABAAAAADQ8_usd/start_result_navigation.usd",
+        "usd_path": "/home/ubuntu/sunsz/GRScenes/commercial_scenes/scenes/MV4AFHQKTKJZ2AABAAAAADQ8_usd/start_result_navigation.usd",
         "root_prim_path": "/Root",
         "navmesh_root_prim_path": "/World",
         "notes": "GRScenes sample; replace usd_path with the specific scene asset."
       },
       "navmesh": {
-        "bake_root_prim_path": "/Root/Meshes/Base/ground",
+        "bake_root_prim_path": "Meshes/Base/ground",
         "include_volume_parent": "/World/NavMesh",
         "z_padding": 2.0,
         "agent_radius": 10.0,
@@ -32,7 +32,7 @@
           "Character": "original_male_adult_medical_01/male_adult_medical_01.usd"
         },
         "asset_root": {
-          "settings_key": "/home/autolab/sunsz/IsaacAssets/People/Characters",
+          "path": "/home/ubuntu/sunsz/IsaacAssets/People/Characters",
           "fallback": ""
         },
         "spawn_policy": {
@@ -69,8 +69,8 @@
           {
             "type": "carter_v1",
             "label": "keyboard_carter",
-            "spawn_path": "/World/carter_v1",
-            "usd_path": "/home/autolab/sunsz/IsaacAssets/Robots/NVIDIA/Carter/carter_v1.usd",
+            "spawn_path": "/carter_v1",
+            "usd_path": "/home/ubuntu/sunsz/IsaacAssets/Robots/NVIDIA/Carter/carter_v1.usd",
             "initial_pose": {
               "position": [
                 800.0,
@@ -84,7 +84,6 @@
               "module": "tools.teleop.carter_keyboard",
               "entry": "launch",
               "params": {
-                "robot_path": "/World/carter_v1",
                 "left_joint": "left_wheel",
                 "right_joint": "right_wheel",
                 "wheel_radius": 0.24,
@@ -99,7 +98,7 @@
         ]
       },
       "logging": {
-        "path": "/home/autolab/sunsz/UniNavBench/GRScenes/commercial_scenes/MV4AFHQKTKJZ2AABAAAAADQ8_usd/episode_1.json",
+        "path": "/home/ubuntu/sunsz/UniNavBench/GRScenes/commercial_scenes/MV4AFHQKTKJZ2AABAAAAADQ8_usd/episode_1.json",
         "distance_threshold": 5,
         "print": true,
         "instruction": "Wait a while until the two dictors in front of you have finished talking. Then go to the female doctor who did not leave. Wait a while. Follow her instruction 'Turn right. See this room directly in front of you? Go around the outside of these rows of chairs and enter the room. Wait next to the man sitting on the sofa.'. ",

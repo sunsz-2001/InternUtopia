@@ -4,9 +4,9 @@ import omni.kit.app
 from typing import Optional
 from pxr import UsdGeom
 
-from ..agent_manager import AgentManager
-from ..settings import PrimPaths
-from ..stage_util import UnitScaleService
+from internutopia_extension.envset.agent_manager import AgentManager
+from internutopia_extension.envset.settings import PrimPaths
+from internutopia_extension.envset.stage_util import UnitScaleService
 
 
 class ArrivalGuard:

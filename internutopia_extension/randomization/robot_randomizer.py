@@ -1,6 +1,6 @@
 from typing import List, Dict
-from isaacsim.replicator.agent.core.settings import CommandSetting
-from isaacsim.replicator.agent.core.stage_util import RobotUtil
+from internutopia_extension.envset.settings import CommandSetting
+from internutopia_extension.envset.stage_util import RobotUtil
 
 from .randomizer import (
     CommandTransitionMap,

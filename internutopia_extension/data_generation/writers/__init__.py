@@ -2,7 +2,7 @@ import ast
 import importlib
 import os
 from pathlib import Path
-from isaacsim.replicator.agent.core.settings import WriterSetting
+from internutopia_extension.envset.settings import WriterSetting
 from omni.replicator.core import WriterRegistry
 import carb
 
@@ -19,7 +19,7 @@ def _get_all_built_in_writers() -> dict[str, "IRABasicWriter"]:
         if not file.endswith(".py") or file in {"utils.py", "__init__.py"}:
             continue  # Skip non-writer files
 
-        module_name = f"isaacsim.replicator.agent.core.data_generation.writers.{file.replace('.py', '')}"
+        module_name = f"internutopia_extension.data_generation.writers.{file.replace('.py', '')}"
 
         try:
             importlib.import_module(module_name)  # Import writer module
@@ -46,7 +46,7 @@ def _get_all_built_in_writers() -> dict[str, "IRABasicWriter"]:
                         continue
 
                     writer_module = importlib.import_module(
-                        "isaacsim.replicator.agent.core.data_generation.writers.writer"
+                        "internutopia_extension.data_generation.writers.writer"
                     )
                     # get IRABasicWriter module
                     IRABasicWriter = getattr(writer_module, "IRABasicWriter", None)

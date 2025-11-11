@@ -1,4 +1,4 @@
-﻿# flake8: noqa
+# flake8: noqa
 import asyncio
 import json
 import os
@@ -21,17 +21,26 @@ import NavSchema
 
 from omni.metropolis.utils.config_file.core import ConfigFile
 from omni.metropolis.utils.config_file.util import ConfigFileError
-from omni.isaac.matterport.scripts import import_matterport_asset
+
+# Optional import: matterport may not be available in all Isaac Sim versions
+try:
+    from omni.isaac.matterport.scripts import import_matterport_asset
+    MATTERPORT_AVAILABLE = True
+except ImportError:
+    MATTERPORT_AVAILABLE = False
+    import_matterport_asset = None
+    carb.log_warn("omni.isaac.matterport is not available. Matterport scene import will be disabled.")
+
 # Removed redundant direct imports; collision/ground handled in importer
-from .data_generation.data_generation import DataGeneration
-from .randomization.camera_randomizer import CameraRandomizer, LidarCameraRandomizer
-from .randomization.carter_randomizer import CarterRandomizer
-from .randomization.character_randomizer import CharacterRandomizer
-from .randomization.randomizer_util import RandomizerUtil
-from .randomization.iw_hub_randomizer import IwHubRandomizer
-from .response.core import AgentResponseManager
-from .robot_control import RobotControlManager
-from .settings import AssetPaths, PrimPaths, BehaviorScriptPaths, Settings, GlobalValues
+from internutopia_extension.data_generation.data_generation import DataGeneration
+from internutopia_extension.randomization.camera_randomizer import CameraRandomizer, LidarCameraRandomizer
+from internutopia_extension.randomization.carter_randomizer import CarterRandomizer
+from internutopia_extension.randomization.character_randomizer import CharacterRandomizer
+from internutopia_extension.randomization.randomizer_util import RandomizerUtil
+from internutopia_extension.randomization.iw_hub_randomizer import IwHubRandomizer
+from internutopia_extension.response.core import AgentResponseManager
+from internutopia_extension.envset.robot_control import RobotControlManager
+from internutopia_extension.envset.settings import AssetPaths, PrimPaths, BehaviorScriptPaths, Settings, GlobalValues
 from .stage_util import (
     AgentUtil,
     CameraUtil,
@@ -45,7 +54,7 @@ from .navmesh_utils import ensure_navmesh_async
 from .incident_bridge import IncidentBridge
 from .virtual_human_colliders import ColliderConfig, VirtualHumanColliderApplier
 from isaacsim.core.utils import prims
-from .guards.arrival_guard import ArrivalGuard
+from internutopia_extension.guards.arrival_guard import ArrivalGuard
 
 FRAME_RATE = 30
 
@@ -443,7 +452,8 @@ class SimulationManager:
             character_paths=character_paths,
             collider_config=collider_cfg,
         )
-        self._virtual_human_collider_mgr.activate()
+        # 立即应用碰撞体，不等待timeline启动，避免虚拟人物在物理启动时下滑
+        self._virtual_human_collider_mgr.activate(apply_immediately=True)
 
     async def _spawn_envset_robots(self):
         if not self._env_scene_config:
@@ -1206,6 +1216,11 @@ class SimulationManager:
         完整准备Matterport场景，包括导入、碰撞、地面、NavMesh
         完成后触发ASSETS_LOADED事件，复用现有的资产加载流程
         """
+        # Check if Matterport is available
+        if not MATTERPORT_AVAILABLE:
+            carb.log_error("Cannot import Matterport scene: omni.isaac.matterport extension is not available in this Isaac Sim version.")
+            return
+
         try:
             # Step 1: Import Matterport asset (honor ground plane config directly)
             gp_enabled = True

@@ -6,16 +6,116 @@
 ## 1. 配置与入口
 
 - CLI：`internutopia_extension/envset/standalone.py`
-  - 参数：`--config`（InternUtopia YAML）、`--envset`（envset JSON）、`--scenario`、`--headless`、`--hold-seconds`、`--no-play`、`--run-data`、`--skip-isaac-assets`、`--label`。
+  - 参数：
+    - `--config`（InternUtopia YAML，基础配置文件，可使用 `config_minimal.yaml`）
+    - `--envset`（envset JSON，场景配置）
+    - `--scenario`（可选，指定scenario id）
+    - `--headless`（无头模式）
+    - `--extension-path`（可重复，添加自定义扩展搜索路径，如 isaaclab source 目录）
+    - `--hold-seconds`（运行时长限制）
+    - `--no-play`（不自动播放）
+    - `--run-data`（数据生成模式）
+    - `--skip-isaac-assets`（跳过Isaac资产查询）
+    - `--label`（标签）
   - 流程：
     1. 通过 `EnvsetConfigLoader` 合并 YAML + envset，产生 `EnvsetConfigBundle`（含结构化 `scenario_data`）。
     2. `EnvsetTaskAugmentor` 将 envset 信息注入每个 `task_config`，包括 `scene`, `navmesh`, `virtual_humans`, `robots`。
-    3. 启动 InternUtopia `SimulatorRunner`（自动导入扩展、设置 World/AgentManager/Patch）。
-    4. `runner.reset()` 后根据 CLI 选择是否自动 `timeline.play()`，循环调用 `SimulationApp.update()`。
+       - **重要**：`EnvsetTaskAugmentor.apply()` 迭代 `task_configs` 列表并增强每个task，不会创建新task。因此YAML中必须至少有一个task条目。
+    3. 启动 InternUtopia `SimulatorRunner`（创建 SimulationApp）。
+    4. 启用必需的 Isaac Sim extensions（`omni.metropolis.utils`, `omni.anim.navigation.*`, `omni.anim.people`, `isaacsim.anim.robot`）。
+    5. 初始化 envset 运行期组件（World/AgentManager/Patch）。
+    6. `runner.reset()` 后根据 CLI 选择是否自动 `timeline.play()`，循环调用 `runner.step(actions)`。
 
 - 引用与扩展：`import_extensions()` 会注册扩展中的 controller/object/robot/task，`bootstrap_world_if_needed()` + `AgentManager.get_instance()` 确保 envset 运行期依赖存在。
 
 ## 2. envset → TaskCfg 映射
+
+### 2.1 架构设计（2024-11 重构）
+
+**核心原则**：**统一使用 Pydantic 对象，避免字典⇄对象转换**
+
+在 2024-11 的重构中，我们彻底消除了配置构建过程中的字典⇄对象转换问题，采用纯对象化架构：
+
+**重构前的问题**：
+- ❌ 混合模式：差速机器人用字典构建，四足/人形机器人用对象转字典
+- ❌ 循环转换：Pydantic对象 → 字典（`model_dump()`）→ 重新构建对象（`_convert_controller_dicts_to_objects`）
+- ❌ 字段丢失：`model_dump()` 序列化嵌套的 `sub_controllers` 时会丢失字段（如 `joint_names`, `policy_weights_path`）
+- ❌ 类型不安全：字典操作缺少编译时类型检查
+- ❌ 代码冗余：需要 87 行的类型映射和转换代码
+
+**重构后的架构**：
+
+```
+envset JSON → RobotSpec (dataclass)
+           ↓
+     _build_robot_controllers() → List[ControllerCfg] (Pydantic对象)
+           ↓
+     _build_robot_entry() → RobotCfg (Pydantic对象)
+           ↓
+     _inject_robots() → 直接添加到 task["robots"]
+           ↓
+     Pydantic 自动验证并构建 Config
+```
+
+**关键实现细节**：
+
+1. **`_build_robot_controllers()` 返回 Pydantic 对象**（lines 176-235 in task_adapter.py）：
+   ```python
+   # 差速机器人：直接构建对象
+   drive_cfg = DifferentialDriveControllerCfg(
+       name=f"{name}_drive",
+       wheel_radius=wheel_radius,
+       wheel_base=wheel_base,
+   )
+   goto_cfg = MoveToPointBySpeedControllerCfg(
+       name=f"{name}_move",
+       sub_controllers=[drive_cfg],  # 嵌套对象
+   )
+   return [goto_cfg]
+
+   # 四足/人形机器人：使用 model_copy(deep=True) 克隆预定义配置
+   cloned = aliengo_move_to_point_cfg.model_copy(deep=True)
+   return [cloned]
+   ```
+
+2. **`_build_robot_entry()` 返回 RobotCfg 对象**（lines 115-144）：
+   ```python
+   robot_cfg = RobotCfg(
+       name=name,
+       type=robot_type,
+       controllers=controllers,  # List[ControllerCfg] 对象
+   )
+   return robot_cfg
+   ```
+
+3. **`_inject_robots()` 直接添加对象**（lines 88-112）：
+   ```python
+   robot_list.append(robot_cfg)  # RobotCfg 对象，不是字典
+   ```
+
+4. **删除了转换代码**（standalone.py 中的 87 行）：
+   - 删除了 `_convert_controller_dicts_to_objects()` 方法
+   - 删除了 16 个控制器类型的导入和映射字典
+   - Pydantic 自动处理嵌套对象的验证
+
+**优势**：
+- ✅ **类型安全**：编译时检查，IDE 自动补全
+- ✅ **零序列化开销**：不需要 dict ↔ object 转换
+- ✅ **字段完整性**：嵌套对象保留所有字段（包括 `joint_names`, `policy_weights_path` 等）
+- ✅ **代码简洁**：减少 87 行转换代码，提高可维护性
+- ✅ **一致性**：所有机器人类型使用统一的构建方式
+
+**向后兼容**：
+- `_inject_robots()` 同时支持字典和 RobotCfg 对象（用于名称冲突检测）
+- 现有的 envset JSON 格式无需修改
+
+**配置传递优化**：
+- ❌ **移除了临时 YAML 文件**：之前 `_write_temp_yaml()` 会将合并后的配置写入临时文件，但该文件从未被读取
+- ✅ **直接使用内存对象**：配置通过 `EnvsetConfigBundle.config` 在内存中传递，保留完整的 Pydantic 对象
+- ✅ **避免序列化问题**：`yaml.safe_dump()` 无法正确序列化 Pydantic 对象（会丢失 `type` 等字段），现在完全避免了这个问题
+- ✅ **性能提升**：减少了不必要的 I/O 操作
+
+---
 
 - `config_loader.EnvsetConfigLoader`
   - 解析 envset JSON，结构化为 `EnvsetScenarioData`（scene/navmesh/vh/robots/logging）。
@@ -43,7 +143,129 @@
 
 > 注意：目前未实现随机化、虚拟人碰撞体或 spawn shuffle——按需求明确无需支持。
 
-## 4. 现存缺口 / TODO
+## 4. 物理仿真稳定性修复（2024-11）
+
+### 4.1 问题背景
+
+在导入 GRScenes 等场景后，经常出现物体穿透地板、不断下沉的问题。这是由多个因素共同造成的：
+
+1. **物理初始化时序问题**：PhysX 在 reset 后需要 1-2 个 physics steps 才能更新刚体状态
+2. **单位缩放问题**：GRScenes 使用厘米单位（metersPerUnit=0.01），而 Isaac Sim 默认使用米单位
+3. **碰撞检测不足**：缺少连续碰撞检测（CCD），快速移动物体会穿透碰撞体
+4. **碰撞网格不精确**：默认的 convexHull 近似对复杂几何体不准确
+
+### 4.2 实施的修复
+
+#### 修复 1：增强物理初始化等待（standalone.py:314-376）
+
+**根据 Isaac Sim 最佳实践**，在 reset 后增加 warm-up 步骤：
+
+```python
+def _wait_for_initialization(self):
+    # Step 1: 执行 2 个 physics steps 让刚体状态传播和稳定
+    for i in range(2):
+        world.step(render=False)
+
+    # Step 2: 执行 12 个 render steps 让传感器数据更新
+    for i in range(12):
+        SimulationContext.render(world)
+```
+
+**效果**：
+- ✅ 防止物体在初始化时穿透地板
+- ✅ 确保传感器/相机数据正确初始化
+- ✅ 增加约 0.5-1 秒启动时间（可接受）
+
+#### 修复 2：动态单位缩放检测（world_utils.py:12-97）
+
+**自动从场景 USD 读取 metersPerUnit 并配置 World**：
+
+```python
+def _detect_stage_units_in_meters() -> float:
+    """从当前 USD stage 中检测单位缩放"""
+    stage = omni.usd.get_context().get_stage()
+    meters_per_unit = float(UsdGeom.GetStageMetersPerUnit(stage))
+    # 对于 GRScenes: meters_per_unit = 0.01 (厘米)
+    return meters_per_unit
+
+def bootstrap_world_if_needed(**overrides):
+    # 自动检测并应用正确的单位
+    detected_units = _detect_stage_units_in_meters()
+    world = World(stage_units_in_meters=detected_units, ...)
+```
+
+**效果**：
+- ✅ GRScenes 场景物理计算正确（重力、质量、速度）
+- ✅ 碰撞检测阈值匹配场景单位
+- ✅ 控制台输出单位检测日志便于调试
+
+#### 修复 3：启用 CCD 和改进碰撞配置（virtual_human_colliders.py）
+
+**物理场景配置（lines 112-149）**：
+```python
+def _ensure_physics_scene(self):
+    # 启用连续碰撞检测（CCD）
+    physx_scene_api.CreateEnableCCDAttr().Set(True)
+    # 启用稳定化（对大时间步有帮助）
+    physx_scene_api.CreateEnableStabilizationAttr().Set(True)
+```
+
+**碰撞体配置改进（lines 14-32）**：
+```python
+@dataclass
+class ColliderConfig:
+    approximation_shape: str = "convexDecomposition"  # 更精确
+    enable_ccd: bool = True  # 启用 CCD
+    contact_offset: float = 0.02  # 2cm 接触偏移
+    rest_offset: float = 0.0
+```
+
+**虚拟人刚体配置（lines 151-202）**：
+- 为刚体启用 CCD
+- 设置 contact_offset 和 rest_offset 参数
+- 对所有子碰撞体应用高级物理参数
+
+**效果**：
+- ✅ 防止快速移动物体穿透
+- ✅ 更精确的碰撞检测（凸分解替代凸包）
+- ✅ 物理仿真更稳定
+
+### 4.3 测试建议
+
+运行测试时观察以下日志输出：
+
+```bash
+[World] Detected stage units: 0.01 meters per unit (centimeters)
+[World] Created Isaac World (..., stage_units_in_meters=0.01)
+[EnvsetStandalone] Starting physics warm-up (2 steps)...
+[EnvsetStandalone] Physics warm-up step 1/2 completed
+[EnvsetStandalone] Physics warm-up step 2/2 completed
+[EnvsetStandalone] Starting render warm-up (12 steps)...
+[EnvsetStandalone] Scene initialization wait completed
+[virtual_human_colliders] Enabled CCD (Continuous Collision Detection)
+[virtual_human_colliders] Enabled stabilization pass
+```
+
+如果看到这些日志，说明修复已正确应用。
+
+---
+
+## 5. 兼容性处理
+
+### 5.1 可选扩展支持
+
+某些 Isaac Sim extensions 可能在不同版本中不可用，已做兼容处理：
+
+- **omni.isaac.matterport**: 用于导入 Matterport 场景，在某些 Isaac Sim 版本中不存在
+  - 处理方式：可选导入，缺失时会显示警告但不会导致启动失败
+  - 影响：如果使用 Matterport 场景且扩展缺失，会报错但不影响其他功能
+
+相关代码：
+- `simulation.py:25-32` - 可选导入 matterport
+- `simulation.py:1218-1221` - 使用前检查可用性
+- `standalone.py:149-154` - 尝试启用但失败不影响启动
+
+## 6. 现存缺口 / TODO
 
 1. ~~**机器人类型扩展**~~ ✅ **已完成**
    - ✅ 支持 `aliengo`（四足）、`h1`、`g1`、`gr1`（人形）、`franka`（机械臂）等类型
@@ -80,7 +302,46 @@
    - 新增模块引用 `ArrivalGuard`, `BehaviorScriptPaths` 等已在 `runtime_hooks.py` 中导入，需要在实际运行时确认 extension path 正确（当前 import 路径基于包内结构，满足 `python -m` 运行）。
    - 若 future 修改了包结构或路径，请同步更新。
 
-## 5. 使用示例
+5. ~~**物理穿透问题**~~ ✅ **已修复（2024-11）**
+   - ✅ 增强物理初始化等待（2 physics steps + 12 render steps）
+   - ✅ 动态检测和应用场景单位缩放（GRScenes 厘米单位支持）
+   - ✅ 启用 CCD（连续碰撞检测）和物理稳定化
+   - ✅ 改进碰撞网格近似（convexDecomposition）和偏移参数
+   - 详见 **第 4 章：物理仿真稳定性修复**
+
+## 7. 使用示例
+
+### 7.0 基本运行命令
+
+如果你的自定义扩展（如 isaaclab extensions）在特定目录：
+
+```bash
+# 基本用法
+python -m internutopia_extension.envset.standalone \
+  --config config_minimal.yaml \
+  --envset scenario.json
+
+# 添加扩展搜索路径（如 isaaclab 的 source 目录）
+python -m internutopia_extension.envset.standalone \
+  --config config_minimal.yaml \
+  --envset scenario.json \
+  --extension-path /path/to/isaaclab/source \
+  --extension-path /another/extension/directory
+
+# 使用 headless 模式和数据生成
+python -m internutopia_extension.envset.standalone \
+  --config config_minimal.yaml \
+  --envset scenario.json \
+  --extension-path /path/to/isaaclab/source \
+  --headless \
+  --run-data
+```
+
+**说明**：
+- `--extension-path` 可以多次指定，添加多个扩展搜索路径
+- 这些路径会被添加到 Isaac Sim 的扩展搜索系统中
+- 如果你的 `omni.isaac.matterport` 等扩展在 isaaclab 的 `source` 目录，使用这个参数指定
+- `source` 目录结构通常是：`isaaclab/source/omni.isaac.matterport/config/extension.toml`
 
 ### 5.1 支持的机器人类型
 
@@ -140,7 +401,7 @@
 使用数据生成功能：
 ```bash
 python -m internutopia_extension.envset.standalone \
-  --config config.yaml \
+  --config config_minimal.yaml \
   --envset scenario.json \
   --run-data
 ```
@@ -177,14 +438,38 @@ python -m internutopia_extension.envset.standalone \
 运行：
 ```bash
 python -m internutopia_extension.envset.standalone \
-  --config config.yaml \
+  --config config_minimal.yaml \
   --envset scenario.json
   # 不要加 --headless（键盘需要窗口）
 ```
 
-## 6. 后续可选优化
+**注意**：
+- `config_minimal.yaml` 是最小化的基础配置文件，已包含在项目根目录
+- 大部分配置来自 `envset.json`，config文件提供基础的模拟器设置和至少一个task模板
+- `task_configs` 必须包含至少一个task条目（即使内容为空），envset会将场景、机器人等信息注入到这个task中
+- 不能使用完全空的 `task_configs: []`，因为EnvsetTaskAugmentor会迭代现有task来注入envset数据
+
+## 8. 自定义 Extension 集成
+
+如果你有自己的 Isaac Sim extension（带 `extension.toml`），可以通过以下方式集成：
+
+1. **配置文件方式**（推荐）：在 YAML 中添加 `simulator.extension_folders`
+   ```yaml
+   simulator:
+     extension_folders:
+       - /path/to/your/extension
+   ```
+
+2. **代码启用方式**：在 `standalone.py` 中调用 `enable_extension("your.extension.name")`
+
+3. **环境变量方式**：设置 `ISAACLAB_EXTENSION_PATHS` 环境变量
+
+详细说明请参考：[自定义 Extension 集成指南](custom_extensions_guide.md)
+
+## 9. 后续可选优化
 
 1. **配置Schema验证**：使用Pydantic或JSON Schema验证envset.json格式
 2. **文档完善**：补充CLI/文档，说明envset JSON中各字段的详细约定
 3. **扩展性增强**：如需更多行为（如控制输入、RL接口），在Runner中读取envset字段即可扩展
+4. **物理参数微调**：根据具体场景调整 physics_dt、contact_offset、rest_offset 等参数以获得最佳稳定性
 ```

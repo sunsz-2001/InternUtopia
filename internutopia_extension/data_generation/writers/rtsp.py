@@ -22,7 +22,7 @@ import carb  # carb logging
 import omni.replicator.core as rep
 import omni.timeline
 import pynvml as pynvml
-from isaacsim.replicator.agent.core.data_generation.writers.writer import IRABasicWriter
+from internutopia_extension.data_generation.writers.writer import IRABasicWriter
 from omni.metropolis.utils.usd_util import USDUtil
 from omni.replicator.core import AnnotatorRegistry, BackendDispatch, WriterRegistry
 from omni.replicator.core.scripts.utils.utils import ReplicatorItem

@@ -25,6 +25,7 @@ class SimConfig(BaseModel):
     headless: Optional[bool] = True
     webrtc: Optional[bool] = False
     native: Annotated[Optional[bool], Field(deprecated='Deprecated for isaacsim ≥ 4.5.0')] = False
+    extension_folders: Optional[List[str]] = None  # Paths to custom extension directories
 
 
 class Config(BaseModel):

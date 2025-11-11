@@ -2,13 +2,15 @@ import math
 
 import carb
 import numpy as np
-import omni.kit.mesh.raycast
 import omni.usd
 from omni.metropolis.utils.carb_util import CarbUtil
 from omni.metropolis.utils.math_util import MathUtil
 from isaacsim.core.utils.rotations import lookat_to_quatf
-from isaacsim.replicator.agent.core.settings import PrimPaths
+from internutopia_extension.envset.settings import PrimPaths
 from pxr import Gf, Usd, UsdGeom
+
+# Import omni.kit.mesh.raycast - extension should be enabled before importing
+import omni.kit.mesh.raycast
 
 
 class RayCast_Container:  # noqa

@@ -15,8 +15,8 @@ from omni.kit.notification_manager import post_notification, NotificationStatus
 from omni.metropolis.utils.carb_util import CarbUtil
 from omni.metropolis.utils.simulation_util import SimulationUtil
 from omni.metropolis.utils.semantics_util import SemanticsUtils
-from isaacsim.replicator.agent.core.settings import CommandSetting
-from ..stage_util import UnitScaleService
+from internutopia_extension.envset.settings import CommandSetting
+from internutopia_extension.envset.stage_util import UnitScaleService
 from .randomizer_util import RandomizerUtil
 
 MAX_RANDOM_CNT = 1000

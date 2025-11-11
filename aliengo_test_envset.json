@@ -1,0 +1,64 @@
+{
+  "version": "0.1",
+  "scenarios": [
+    {
+      "id": "aliengo_test",
+      "scene": {
+        "category": "Builtin",
+        "type": "usd_stage",
+        "usd_path": "/home/ubuntu/sunsz/IsaacAssets/Environments/Simple_Warehouse/full_warehouse.usd",
+        "root_prim_path": "/World",
+        "navmesh_root_prim_path": "/World",
+        "notes": "Builtin Isaac Sim warehouse scene for Aliengo robot testing"
+      },
+      "navmesh": {
+        "include_volume_parent": "/World/NavMesh",
+        "z_padding": 2.0,
+        "agent_radius": 10.0,
+        "min_include_volume_size": {
+          "xy": 10.0,
+          "z": 3.0
+        },
+        "spawn_min_separation_m": 2.0
+      },
+      "virtual_humans": {
+        "category": "Builtin",
+        "count": 0,
+        "name_sequence": [],
+        "assets": {},
+        "asset_root": {
+          "path": "/home/ubuntu/sunsz/IsaacAssets/People/Characters",
+          "fallback": ""
+        },
+        "spawn_points": [],
+        "routes": []
+      },
+      "robots": {
+        "entries": [
+          {
+            "type": "aliengo",
+            "label": "keyboard_aliengo",
+            "spawn_path": "/aliengo_camera",
+            "usd_path": "/home/ubuntu/sunsz/Robots_with_motionpolicy/aliengo/aliengo_camera.usd",
+            "initial_pose": {
+              "position": [
+                0.0,
+                0.0,
+                0.5
+              ],
+              "orientation_deg": 0.0
+            },
+            "control": {
+              "mode": "keyboard_move_by_speed",
+              "params": {
+                "base_velocity": 1.0,
+                "base_turn_rate": 2.0
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
+
