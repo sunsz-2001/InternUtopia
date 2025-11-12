@@ -310,6 +310,7 @@ class EnvsetStandaloneRunner:
             enable_extension("isaacsim.storage.native")
             enable_extension("isaacsim.core.utils")
             enable_extension("omni.metropolis.utils")
+            enable_extension("omni.anim.graph.core")
             enable_extension("omni.anim.navigation.schema")
             enable_extension("omni.anim.navigation.core")
             enable_extension("omni.anim.navigation.meshtools")
