@@ -8,11 +8,15 @@ from .scenario_types import EnvsetScenarioData, RobotSpec
 
 # Import pre-defined controller configurations for complex robots
 try:
-    from internutopia_extension.configs.robots.aliengo import move_to_point_cfg as aliengo_move_to_point_cfg
+    from internutopia_extension.configs.robots.aliengo import (
+        move_by_speed_cfg as aliengo_move_by_speed_cfg,
+        move_to_point_cfg as aliengo_move_to_point_cfg,
+    )
     from internutopia_extension.configs.robots.h1 import move_to_point_cfg as h1_move_to_point_cfg
     from internutopia_extension.configs.robots.g1 import move_to_point_cfg as g1_move_to_point_cfg
     from internutopia_extension.configs.robots.gr1 import move_to_point_cfg as gr1_move_to_point_cfg
 except ImportError:
+    aliengo_move_by_speed_cfg = None
     aliengo_move_to_point_cfg = None
     h1_move_to_point_cfg = None
     g1_move_to_point_cfg = None
@@ -182,6 +186,7 @@ class EnvsetTaskAugmentor:
         )
 
         params = spec.control.params if spec.control else {}
+        control_mode = (spec.control.mode or "").lower() if spec.control and spec.control.mode else ""
         robot_type = (spec.type or "").lower()
 
         # Differential drive robots (jetbot, carter, etc.)
@@ -215,8 +220,11 @@ class EnvsetTaskAugmentor:
             return [goto_cfg]
 
         # Legged and humanoid robots - use pre-defined configurations with parameter overrides
-        if robot_type == "aliengo" and aliengo_move_to_point_cfg is not None:
-            return [EnvsetTaskAugmentor._clone_and_override_controller(aliengo_move_to_point_cfg, params)]
+        if robot_type == "aliengo":
+            if "move_by_speed" in control_mode and aliengo_move_by_speed_cfg is not None:
+                return [aliengo_move_by_speed_cfg.model_copy(deep=True)]
+            if aliengo_move_to_point_cfg is not None:
+                return [EnvsetTaskAugmentor._clone_and_override_controller(aliengo_move_to_point_cfg, params)]
 
         if robot_type in {"h1", "human"} and h1_move_to_point_cfg is not None:
             return [EnvsetTaskAugmentor._clone_and_override_controller(h1_move_to_point_cfg, params)]
