@@ -53,13 +53,29 @@ def main():
         print("  /path/to/isaac-sim/python.sh -m internutopia_extension.envset.diag_agent_status")
         return
 
-    must_extensions = [
-        "omni.anim.people",
-        "omni.anim.navigation.core",
+    # 参考 standalone.py 中的依赖顺序
+    required_extensions = [
+        "omni.usd",
+        "omni.anim.retarget.core",
+        "omni.kit.scripting",
+        "omni.kit.mesh.raycast",
+        "omni.services.pip_archive",
+        "isaacsim.sensors.camera",
+        "isaacsim.sensors.physics",
+        "isaacsim.sensors.rtx",
+        "isaacsim.storage.native",
+        "isaacsim.core.utils",
+        "omni.metropolis.utils",
         "omni.anim.navigation.schema",
+        "omni.anim.navigation.core",
         "omni.anim.navigation.meshtools",
-        "omni.physxcommands",
+        "omni.anim.people",
         "isaacsim.anim.robot",
+        "omni.replicator.core",
+        "isaacsim.replicator.incident",
+    ]
+    optional_extensions = [
+        "omni.physxcommands",  # 某些发行版不存在，缺少时忽略
     ]
 
     ext_manager = omni.kit.app.get_app().get_extension_manager()
@@ -70,7 +86,7 @@ def main():
         print(f"Warning: 无法导入 enable_extension：{exc}")
         enable_extension = None  # type: ignore
 
-    for ext in must_extensions:
+    for ext in required_extensions + optional_extensions:
         enabled = ext_manager.is_extension_enabled(ext)
         if not enabled and enable_extension:
             try:
@@ -78,7 +94,10 @@ def main():
                 enabled = ext_manager.is_extension_enabled(ext)
             except Exception as exc:
                 print(f"  启用扩展 {ext} 失败：{exc}")
-        print(f"{ext:40s} -> {enabled}")
+        if not enabled and ext in optional_extensions:
+            print(f"{ext:40s} -> {enabled} (optional)")
+        else:
+            print(f"{ext:40s} -> {enabled}")
 
     # 2. 获取 stage 与 World 信息
     ctx = omni.usd.get_context()
