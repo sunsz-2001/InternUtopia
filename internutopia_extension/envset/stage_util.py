@@ -768,6 +768,18 @@ class CharacterUtil:
             import traceback
             print(f"[CharacterUtil] Traceback: {traceback.format_exc()}")
 
+        # 诊断：检查 biped prim 的子节点
+        biped_prim = stage.GetPrimAtPath(biped_prim_path)
+        if biped_prim and biped_prim.IsValid():
+            print(f"[CharacterUtil] Biped prim children:")
+            for child in biped_prim.GetChildren():
+                print(f"  - {child.GetPath()} (type: {child.GetTypeName()})")
+                # 递归检查一层子节点
+                for grandchild in child.GetChildren():
+                    print(f"    - {grandchild.GetPath()} (type: {grandchild.GetTypeName()})")
+                    if grandchild.GetTypeName() == "AnimationGraph":
+                        print(f"      *** Found AnimationGraph at {grandchild.GetPath()} ***")
+
         return biped_prim
 
     def get_anim_graph_from_character(character_prim):
