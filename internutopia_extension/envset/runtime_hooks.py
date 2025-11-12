@@ -339,14 +339,27 @@ class EnvsetTaskRuntime:
 
     @classmethod
     def _setup_character_behaviors(cls):
+        carb.log_info("[EnvsetRuntime] Setting up character behaviors...")
         biped = CharacterUtil.load_default_biped_to_stage()
+        if biped is None or not biped.IsValid():
+            carb.log_warn("[EnvsetRuntime] Default biped failed to load; animation graph may be unavailable.")
+        else:
+            carb.log_info(f"[EnvsetRuntime] Default biped prim: {biped.GetPath()}")
+
         character_list = CharacterUtil.get_characters_in_stage()
+        carb.log_info(f"[EnvsetRuntime] Characters detected in stage: {len(character_list)}")
         if not character_list:
             return
+
         anim_graph = CharacterUtil.get_anim_graph_from_character(biped)
         if anim_graph:
+            carb.log_info(f"[EnvsetRuntime] Applying anim graph from {anim_graph.GetPath()}")
             CharacterUtil.setup_animation_graph_to_character(character_list, anim_graph)
+        else:
+            carb.log_warn("[EnvsetRuntime] No animation graph found on default biped; characters will have anim_graph=None")
+
         script_path = BehaviorScriptPaths.behavior_script_path()
+        carb.log_info(f"[EnvsetRuntime] Attaching behavior script: {script_path}")
         CharacterUtil.setup_python_scripts_to_character(character_list, script_path)
         SemanticsUtils.add_update_prim_metrosim_semantics(character_list, type_value="class", name="character")
 
