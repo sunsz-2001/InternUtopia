@@ -17,7 +17,7 @@ from internutopia_extension.guards.arrival_guard import ArrivalGuard
 
 from .navmesh_utils import ensure_navmesh_volume
 from .settings import BehaviorScriptPaths, PrimPaths
-from .stage_util import CharacterUtil
+from .stage_util import CharacterUtil, populate_anim_graph
 
 
 class EnvsetTaskRuntime:
@@ -352,11 +352,25 @@ class EnvsetTaskRuntime:
             return
 
         anim_graph = CharacterUtil.get_anim_graph_from_character(biped)
+        if not anim_graph:
+            carb.log_warn("[EnvsetRuntime] No animation graph found on default biped; retrying populate_anim_graph() after importing omni.anim.graph.core")
+            try:
+                import omni.anim.graph.core  # type: ignore  # noqa: F401
+            except Exception as exc:
+                carb.log_error(f"[EnvsetRuntime] Failed to import omni.anim.graph.core: {exc}")
+            else:
+                try:
+                    populate_anim_graph()
+                except Exception as retry_exc:
+                    carb.log_error(f"[EnvsetRuntime] populate_anim_graph retry failed: {retry_exc}")
+                finally:
+                    anim_graph = CharacterUtil.get_anim_graph_from_character(biped)
+
         if anim_graph:
             carb.log_info(f"[EnvsetRuntime] Applying anim graph from {anim_graph.GetPath()}")
             CharacterUtil.setup_animation_graph_to_character(character_list, anim_graph)
         else:
-            carb.log_warn("[EnvsetRuntime] No animation graph found on default biped; characters will have anim_graph=None")
+            carb.log_error("[EnvsetRuntime] Animation graph still missing after retry; characters may not register with AgentManager.")
 
         script_path = BehaviorScriptPaths.behavior_script_path()
         carb.log_info(f"[EnvsetRuntime] Attaching behavior script: {script_path}")

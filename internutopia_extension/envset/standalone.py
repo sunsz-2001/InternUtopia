@@ -75,6 +75,7 @@ class EnvsetStandaloneRunner:
         self._bundle = EnvsetConfigLoader(self._config_path, self._envset_path, args.scenario).load()
         self._merged_dict = copy.deepcopy(self._bundle.config)
         self._runner: SimulatorRunner | None = None
+        self._simulation_app = None
         self._data_gen = None
         self._keyboard = None
         self._keyboard_robots = []
@@ -239,20 +240,19 @@ class EnvsetStandaloneRunner:
 
     def run(self):
         print("[EnvsetStandalone] Building config model...")
-        # Build config first (before SimulationApp)
         config_model = self._build_config_model()
 
         print("[EnvsetStandalone] Importing extensions...")
-        # Import extensions (prepares robot/controller registrations)
         import_extensions()
 
-        print("[EnvsetStandalone] Creating runner (initializing SimulationApp)...")
-        # Create runner (this initializes SimulationApp)
-        self._runner = self._create_runner(config_model)
+        print("[EnvsetStandalone] Initializing SimulationApp (pre-run bootstrap)...")
+        self._simulation_app = self._initialize_simulation_app(config_model)
 
         print("[EnvsetStandalone] Preparing runtime settings...")
-        # Now we can use Isaac Sim modules (carb, etc.)
         self._prepare_runtime_settings()
+
+        print("[EnvsetStandalone] Creating runner (reusing SimulationApp)...")
+        self._runner = self._create_runner(config_model)
 
         print("[EnvsetStandalone] Post-runner initialization...")
         self._post_runner_initialize()
@@ -283,9 +283,15 @@ class EnvsetStandaloneRunner:
         print("[EnvsetStandalone] Run completed.")
 
     def shutdown(self):
+        app = None
         if self._runner and self._runner.simulation_app:
+            app = self._runner.simulation_app
+        elif self._simulation_app:
+            app = self._simulation_app
+
+        if app:
             try:
-                self._runner.simulation_app.close()
+                app.close()
             except Exception:
                 pass
 
@@ -366,6 +372,80 @@ class EnvsetStandaloneRunner:
             except Exception as exc:
                 carb.log_warn(f"[EnvsetStandalone] Failed to cache asset root: {exc}")
 
+    def _initialize_simulation_app(self, config: Config):
+        from isaacsim import SimulationApp  # type: ignore
+        import os
+
+        simulator_cfg = config.simulator
+
+        launch_config = {
+            "headless": simulator_cfg.headless,
+            "anti_aliasing": 0,
+            "hide_ui": False,
+            "multi_gpu": False,
+        }
+
+        extension_folders = getattr(simulator_cfg, "extension_folders", None) or []
+        if extension_folders:
+            if "ISAAC_EXTRA_EXT_PATH" in os.environ:
+                existing = os.environ["ISAAC_EXTRA_EXT_PATH"]
+                os.environ["ISAAC_EXTRA_EXT_PATH"] = os.pathsep.join([existing] + extension_folders)
+            else:
+                os.environ["ISAAC_EXTRA_EXT_PATH"] = os.pathsep.join(extension_folders)
+            launch_config["extension_folders"] = extension_folders
+
+        sim_app = SimulationApp(launch_config)
+        sim_app._carb_settings.set("/physics/cooking/ujitsoCollisionCooking", False)
+
+        self._configure_streaming(sim_app, simulator_cfg)
+        return sim_app
+
+    def _configure_streaming(self, sim_app, simulator_cfg):
+        native = getattr(simulator_cfg, "native", False)
+        webrtc = getattr(simulator_cfg, "webrtc", False)
+
+        try:
+            from isaacsim import util  # type: ignore  # noqa: F401
+        except ImportError:
+            self._configure_streaming_420(sim_app, native, webrtc)
+        else:
+            if native:
+                print("[EnvsetStandalone] native streaming is deprecated, enabling webrtc instead.")
+            self._configure_streaming_450(sim_app, native or webrtc)
+
+    @staticmethod
+    def _configure_streaming_420(sim_app, native: bool, webrtc: bool):
+        if webrtc:
+            from omni.isaac.core.utils.extensions import enable_extension  # type: ignore
+
+            sim_app.set_setting("/app/window/drawMouse", True)
+            sim_app.set_setting("/app/livestream/proto", "ws")
+            sim_app.set_setting("/app/livestream/websocket/framerate_limit", 60)
+            sim_app.set_setting("/ngx/enabled", False)
+            enable_extension("omni.services.streamclient.webrtc")
+        elif native:
+            from omni.isaac.core.utils.extensions import enable_extension  # type: ignore
+
+            sim_app.set_setting("/app/window/drawMouse", True)
+            sim_app.set_setting("/app/livestream/proto", "ws")
+            sim_app.set_setting("/app/livestream/websocket/framerate_limit", 120)
+            sim_app.set_setting("/ngx/enabled", False)
+            enable_extension("omni.kit.streamsdk.plugins-3.2.1")
+            enable_extension("omni.kit.livestream.core-3.2.0")
+            enable_extension("omni.kit.livestream.native")
+
+    @staticmethod
+    def _configure_streaming_450(sim_app, enable_webrtc: bool):
+        if not enable_webrtc:
+            return
+        from omni.isaac.core.utils.extensions import enable_extension  # type: ignore
+
+        sim_app.set_setting("/app/window/drawMouse", True)
+        try:
+            enable_extension("omni.kit.livestream.webrtc")
+        except Exception:
+            enable_extension("omni.services.streamclient.webrtc")
+
     def _build_config_model(self) -> Config:
         merged = copy.deepcopy(self._merged_dict)
         sim_section = merged.setdefault("simulator", {})
@@ -388,8 +468,38 @@ class EnvsetStandaloneRunner:
 
     def _create_runner(self, config: Config) -> SimulatorRunner:
         task_manager = create_task_config_manager(config)
-        runner = SimulatorRunner(config=config, task_config_manager=task_manager)
+        if self._simulation_app is None:
+            raise RuntimeError("SimulationApp must be initialized before creating SimulatorRunner.")
+
+        original_setup = SimulatorRunner.setup_isaacsim
+
+        def _reuse_setup(runner_self):
+            runner_self._simulation_app = self._simulation_app
+            runner_self._simulation_app._carb_settings.set("/physics/cooking/ujitsoCollisionCooking", False)
+            self._reuse_streaming_configuration(runner_self)
+
+        SimulatorRunner.setup_isaacsim = _reuse_setup
+        try:
+            runner = SimulatorRunner(config=config, task_config_manager=task_manager)
+        finally:
+            SimulatorRunner.setup_isaacsim = original_setup
+
         return runner
+
+    def _reuse_streaming_configuration(self, runner: SimulatorRunner):
+        native = getattr(runner.config.simulator, "native", False)
+        webrtc = getattr(runner.config.simulator, "webrtc", False)
+
+        try:
+            from isaacsim import util  # type: ignore  # noqa: F401
+        except ImportError:
+            runner.setup_streaming_420(native, webrtc)
+        else:
+            if native:
+                from internutopia.core.util import log
+
+                log.warning("native streaming is deprecated, enabling webrtc instead")
+            runner.setup_streaming_450(native or webrtc)
 
     def _post_runner_initialize(self):
         # Import Isaac Sim modules (can now be safely imported)
