@@ -243,12 +243,21 @@ class EnvsetStandaloneRunner:
         # Import extensions (prepares robot/controller registrations)
         import_extensions()
 
-        print("[EnvsetStandalone] Creating runner (initializing SimulationApp)...")
-        # Create runner (this initializes SimulationApp)
-        self._runner = self._create_runner(config_model)
+        print("[EnvsetStandalone] Initializing SimulationApp...")
+        # Initialize SimulationApp first (but don't create World yet)
+        self._init_simulation_app(config_model)
+
+        print("[EnvsetStandalone] Enabling critical extensions (before World creation)...")
+        # Enable critical extensions IMMEDIATELY after SimulationApp creation
+        # This is crucial for omni.anim.graph.core to initialize properly
+        self._enable_critical_extensions()
+
+        print("[EnvsetStandalone] Creating runner (initializing World and tasks)...")
+        # Now create the full runner (this will create World)
+        self._runner = self._create_runner_with_app(config_model)
 
         print("[EnvsetStandalone] Preparing runtime settings...")
-        # Now we can use Isaac Sim modules (carb, etc.)
+        # Configure additional runtime settings
         self._prepare_runtime_settings()
 
         print("[EnvsetStandalone] Post-runner initialization...")
@@ -288,21 +297,75 @@ class EnvsetStandaloneRunner:
 
     # ---------- internal helpers ----------
 
-    def _prepare_runtime_settings(self):
-        # Import Isaac Sim modules here, after runner initialization
-        import carb  # type: ignore
-        import carb.settings  # type: ignore
+    def _init_simulation_app(self, config: Config):
+        """Initialize SimulationApp without creating World yet."""
+        from isaacsim import SimulationApp  # type: ignore
+        import os
 
-        # Enable required extensions before importing envset modules
-        print("[EnvsetStandalone] Enabling required extensions...")
+        headless = config.simulator.headless
+        
+        # Build launch config
+        launch_config = {
+            'headless': headless,
+            'anti_aliasing': 0,
+            'hide_ui': False,
+            'multi_gpu': False
+        }
+
+        # Add custom extension paths if specified
+        if hasattr(config.simulator, 'extension_folders') and config.simulator.extension_folders:
+            ext_paths = config.simulator.extension_folders
+            if 'ISAAC_EXTRA_EXT_PATH' in os.environ:
+                existing = os.environ['ISAAC_EXTRA_EXT_PATH']
+                os.environ['ISAAC_EXTRA_EXT_PATH'] = os.pathsep.join([existing] + ext_paths)
+            else:
+                os.environ['ISAAC_EXTRA_EXT_PATH'] = os.pathsep.join(ext_paths)
+
+        print(f"[EnvsetStandalone] Creating SimulationApp with config: {launch_config}")
+        self.simulation_app = SimulationApp(launch_config)
+        print("[EnvsetStandalone] SimulationApp created successfully")
+
+    def _enable_critical_extensions(self):
+        """Enable critical extensions immediately after SimulationApp creation.
+        
+        This must happen BEFORE World creation to ensure omni.anim.graph.core
+        and related extensions are properly initialized.
+        """
+        import carb  # type: ignore
+        
+        print("[EnvsetStandalone] Enabling critical extensions for animation graph...")
         try:
             from omni.isaac.core.utils.extensions import enable_extension  # type: ignore
 
-            # Core envset dependencies (based on extension.toml dependencies)
-            enable_extension("omni.usd")
+            # CRITICAL: Animation graph extensions MUST be enabled before World creation
+            # This is required for Isaac Sim 5.0.0 where omni.anim.graph.core v107.3.0
+            # needs early initialization
+            enable_extension("omni.anim.graph.core")
             enable_extension("omni.anim.retarget.core")
+            enable_extension("omni.anim.navigation.schema")
+            enable_extension("omni.anim.navigation.core")
+            enable_extension("omni.anim.navigation.meshtools")
+            enable_extension("omni.anim.people")
+            
+            carb.log_info("[EnvsetStandalone] Critical animation extensions enabled before World creation")
+        except Exception as exc:
+            carb.log_error(f"[EnvsetStandalone] FAILED to enable critical extensions: {exc}")
+            raise
+
+    def _prepare_runtime_settings(self):
+        """Configure additional runtime settings and enable remaining extensions."""
+        import carb  # type: ignore
+        import carb.settings  # type: ignore
+
+        # Enable remaining extensions (non-critical ones)
+        print("[EnvsetStandalone] Enabling remaining extensions...")
+        try:
+            from omni.isaac.core.utils.extensions import enable_extension  # type: ignore
+
+            # Core envset dependencies
+            enable_extension("omni.usd")
             enable_extension("omni.kit.scripting")
-            enable_extension("omni.kit.mesh.raycast")  # Required for raycast functionality
+            enable_extension("omni.kit.mesh.raycast")
             enable_extension("omni.services.pip_archive")
             enable_extension("isaacsim.sensors.camera")
             enable_extension("isaacsim.sensors.physics")
@@ -310,24 +373,23 @@ class EnvsetStandaloneRunner:
             enable_extension("isaacsim.storage.native")
             enable_extension("isaacsim.core.utils")
             enable_extension("omni.metropolis.utils")
-            enable_extension("omni.anim.graph.core")
-            enable_extension("omni.anim.navigation.schema")
-            enable_extension("omni.anim.navigation.core")
-            enable_extension("omni.anim.navigation.meshtools")
-            enable_extension("omni.anim.people")
             enable_extension("isaacsim.anim.robot")
             enable_extension("omni.replicator.core")
             enable_extension("isaacsim.replicator.incident")
-            enable_extension("omni.physxcommands")
+            
+            try:
+                enable_extension("omni.physxcommands")
+            except Exception:
+                carb.log_warn("[EnvsetStandalone] omni.physxcommands not available (optional)")
 
-            # Optional: Matterport (may not be available in all Isaac Sim versions)
+            # Optional: Matterport
             try:
                 enable_extension("omni.isaac.matterport")
                 carb.log_info("[EnvsetStandalone] Matterport extension enabled")
             except Exception:
-                carb.log_warn("[EnvsetStandalone] Matterport extension not available - Matterport scene import will be disabled")
+                carb.log_warn("[EnvsetStandalone] Matterport extension not available")
 
-            carb.log_info("[EnvsetStandalone] Required extensions enabled")
+            carb.log_info("[EnvsetStandalone] Remaining extensions enabled")
         except Exception as exc:
             carb.log_warn(f"[EnvsetStandalone] Failed to enable some extensions: {exc}")
         finally:
@@ -384,8 +446,75 @@ class EnvsetStandaloneRunner:
         return config_model
 
     def _create_runner(self, config: Config) -> SimulatorRunner:
+        """Legacy method - creates runner with embedded SimulationApp."""
         task_manager = create_task_config_manager(config)
         runner = SimulatorRunner(config=config, task_config_manager=task_manager)
+        return runner
+
+    def _create_runner_with_app(self, config: Config) -> SimulatorRunner:
+        """Create runner using the pre-initialized SimulationApp.
+        
+        This method creates the SimulatorRunner but skips the SimulationApp
+        initialization since it was already done in _init_simulation_app().
+        """
+        from internutopia.core.task_config_manager import create_task_config_manager
+        from internutopia.core.scene.scene import IScene
+        from omni.isaac.core import World  # type: ignore
+        from internutopia.core.util import log
+        
+        # Create task manager
+        task_manager = create_task_config_manager(config)
+        
+        # Create a custom runner that uses our pre-initialized SimulationApp
+        runner = SimulatorRunner.__new__(SimulatorRunner)
+        runner.config = config
+        runner.task_config_manager = task_manager
+        runner.env_num = config.env_num
+        
+        # Set the simulation_app we already created
+        runner.simulation_app = self.simulation_app
+        
+        # Now create World (this is safe because extensions are already enabled)
+        physics_dt = config.simulator.physics_dt
+        rendering_dt = config.simulator.rendering_dt
+        physics_dt = eval(physics_dt) if isinstance(physics_dt, str) else physics_dt
+        runner.dt = physics_dt
+        rendering_dt = eval(rendering_dt) if isinstance(rendering_dt, str) else rendering_dt
+        use_fabric = config.simulator.use_fabric
+        
+        log.info(f'simulator params: physics dt={physics_dt}, rendering dt={rendering_dt}, use_fabric={use_fabric}')
+        print("[DEBUG] Before World creation (with extensions enabled)")
+        runner._world = World(
+            physics_dt=physics_dt,
+            rendering_dt=rendering_dt,
+            stage_units_in_meters=1.0,
+            sim_params={'use_fabric': use_fabric},
+        )
+        print("[DEBUG] After World creation")
+        
+        # Initialize remaining runner attributes
+        runner._scene = IScene.create()
+        runner._stage = runner._world.stage
+        runner.task_name_to_env_id_map = {}
+        runner.env_id_to_task_name_map = {}
+        runner.finished_tasks = set()
+        runner.render_interval = config.simulator.rendering_interval if config.simulator.rendering_interval is not None else 5
+        runner.render_trigger = 0
+        runner.loop = False
+        runner._render = False
+        runner.metrics_config = None
+        runner.metrics_save_path = config.metrics_save_path
+        
+        if runner.metrics_save_path != 'console':
+            try:
+                with open(runner.metrics_save_path, 'w'):
+                    pass
+            except Exception as e:
+                log.error(f'Can not create result file at {runner.metrics_save_path}.')
+                raise e
+        
+        log.info(f'rendering interval: {runner.render_interval}')
+        
         return runner
 
     def _post_runner_initialize(self):
