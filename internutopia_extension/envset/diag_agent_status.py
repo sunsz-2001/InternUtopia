@@ -64,8 +64,20 @@ def main():
 
     ext_manager = omni.kit.app.get_app().get_extension_manager()
     print("\n[Extensions]")
+    try:
+        from omni.isaac.core.utils.extensions import enable_extension  # type: ignore
+    except Exception as exc:
+        print(f"Warning: 无法导入 enable_extension：{exc}")
+        enable_extension = None  # type: ignore
+
     for ext in must_extensions:
         enabled = ext_manager.is_extension_enabled(ext)
+        if not enabled and enable_extension:
+            try:
+                enable_extension(ext)
+                enabled = ext_manager.is_extension_enabled(ext)
+            except Exception as exc:
+                print(f"  启用扩展 {ext} 失败：{exc}")
         print(f"{ext:40s} -> {enabled}")
 
     # 2. 获取 stage 与 World 信息
