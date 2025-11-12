@@ -250,9 +250,241 @@ class ColliderConfig:
 
 ---
 
-## 5. 兼容性处理
+## 5. 键盘控制动作传递修复（2024-11）
 
-### 5.1 可选扩展支持
+### 5.1 问题背景
+
+在实现 envset 的键盘控制功能时，发现通过 JSON 配置加载的机器人无法响应键盘输入，而直接使用 Python 脚本（如 `aliengo_keyboard.py`）则工作正常。经过深入分析，发现了两个根本性问题：
+
+#### 问题 1：动作数据结构不匹配
+
+**症状**：
+- 机器人不响应键盘输入
+- 没有报错，程序正常运行
+- 日志中出现 `[WARNING] unknown controller move_by_speed in action`
+
+**根本原因**：
+
+`standalone.py` 和 `gym_env.py` 构建的动作数据结构不同，导致 `runner.py` 无法正确分发动作。
+
+1. **Python 脚本路径**（正常工作）：
+   ```python
+   # aliengo_keyboard.py
+   env_action = {'move_by_speed': (x, y, z)}
+   env.step(action=env_action)
+   
+   # gym_env.py 自动包装
+   _actions = [{self._robot_name: action}]  # {"aliengo": {"move_by_speed": (x,y,z)}}
+   self._runner.step(_actions)
+   ```
+
+2. **JSON 配置路径**（问题路径）：
+   ```python
+   # standalone.py (修复前)
+   env_action = {"move_by_speed": (x, y, z)}  # 缺少机器人名称层
+   actions = [env_action]
+   self._runner.step(actions)
+   
+   # runner.py 处理
+   for name, action in action_dict.items():
+       # name = "move_by_speed" (控制器名称，而非机器人名称)
+       if name in task.robots:  # False! task.robots 的键是 "keyboard_aliengo"
+           # 动作被跳过，机器人不动
+   ```
+
+**为什么没有报错？**
+
+`runner.py` 的设计是"宽容"的，为了支持多机器人场景，如果动作字典中的键在 `task.robots` 中找不到，它会默默忽略，而不是抛出异常。这种设计在多智能体场景中是合理的，但在这里完美地掩盖了数据结构不匹配的问题。
+
+#### 问题 2：控制器类型不匹配
+
+**症状**：
+- 即使修复了动作结构，仍然出现 `[WARNING] unknown controller move_by_speed in action`
+- 机器人姿态与 demo 方式不同
+
+**根本原因**：
+
+`EnvsetTaskAugmentor` 为 aliengo 默认配置的是 `move_to_point` 控制器，而键盘发送的是 `move_by_speed` 动作：
+
+```python
+# task_adapter.py (修复前)
+if robot_type == "aliengo" and aliengo_move_to_point_cfg is not None:
+    return [aliengo_move_to_point_cfg]  # 名称是 "move_to_point"
+
+# standalone.py 发送的动作
+env_action = {"keyboard_aliengo": {"move_by_speed": (x,y,z)}}
+
+# aliengo.py 处理
+for controller_name, controller_action in action.items():
+    if controller_name not in self.controllers:  # "move_by_speed" 不在控制器列表中
+        log.warning(f'unknown controller {controller_name} in action')
+```
+
+### 5.2 修复方案
+
+#### 修复 1：动作数据结构（standalone.py）
+
+**修改位置**：`internutopia_extension/envset/standalone.py:471-504`
+
+**修改前**：
+```python
+def _collect_actions(self):
+    actions = []
+    for env_id in range(self._runner.env_num):
+        env_action = {}
+        for robot_cfg in self._keyboard_robots:
+            env_action[robot_cfg["controller"]] = (x_speed, y_speed, z_speed)
+        actions.append(env_action)
+    return actions
+```
+
+**修改后**：
+```python
+def _collect_actions(self):
+    actions = []
+    for env_id in range(self._runner.env_num):
+        env_action = {}
+        for robot_cfg in self._keyboard_robots:
+            robot_name = robot_cfg["name"]  # 机器人在 task.robots 中的键
+            controller_name = robot_cfg["controller"]
+            # 构建正确的嵌套结构：{机器人名称: {控制器名称: 动作}}
+            env_action[robot_name] = {
+                controller_name: (x_speed, y_speed, z_speed)
+            }
+        actions.append(env_action)
+    return actions
+```
+
+**效果**：
+- ✅ 动作格式匹配 `runner.py` 的期望
+- ✅ `runner.py` 能够正确找到机器人并调用 `apply_action()`
+- ✅ 支持多机器人场景
+
+#### 修复 2：控制器类型选择（task_adapter.py）
+
+**修改位置**：`internutopia_extension/envset/task_adapter.py:217-227`
+
+**修改前**：
+```python
+# Legged and humanoid robots - use pre-defined configurations
+if robot_type == "aliengo" and aliengo_move_to_point_cfg is not None:
+    return [aliengo_move_to_point_cfg]
+```
+
+**修改后**：
+```python
+# Legged and humanoid robots - check control mode first
+if robot_type == "aliengo":
+    # 如果 control.mode 包含 "move_by_speed"，使用基础速度控制器
+    control_mode = (spec.control.mode or "").lower() if spec.control else ""
+    if "move_by_speed" in control_mode and aliengo_move_by_speed_cfg is not None:
+        return [EnvsetTaskAugmentor._clone_and_override_controller(aliengo_move_by_speed_cfg, params)]
+    # 否则使用默认的 move_to_point 控制器
+    elif aliengo_move_to_point_cfg is not None:
+        return [EnvsetTaskAugmentor._clone_and_override_controller(aliengo_move_to_point_cfg, params)]
+```
+
+**效果**：
+- ✅ 根据 JSON 配置中的 `control.mode` 选择合适的控制器
+- ✅ `keyboard_move_by_speed` 模式使用 `move_by_speed` 控制器
+- ✅ 其他模式使用 `move_to_point` 控制器（支持导航）
+- ✅ 向后兼容：未指定 mode 时使用默认控制器
+
+### 5.3 数据流对比
+
+**修复后的完整数据流**：
+
+```
+1. JSON 配置
+   {
+     "type": "aliengo",
+     "label": "keyboard_aliengo",
+     "control": {"mode": "keyboard_move_by_speed"}
+   }
+
+2. EnvsetTaskAugmentor._build_robot_controllers()
+   → 检测到 "move_by_speed" in mode
+   → 返回 [move_by_speed_cfg]  # 名称是 "move_by_speed"
+
+3. create_robots() 
+   → robot_map["keyboard_aliengo"] = AliengoRobot(...)
+   → robot.controllers = {"move_by_speed": MoveBySpeedController(...)}
+
+4. standalone.py._collect_actions()
+   → 构建 [{"keyboard_aliengo": {"move_by_speed": (1.0, 0.0, 0.0)}}]
+
+5. runner.py.step()
+   → for name, action in action_dict.items():
+   →   name = "keyboard_aliengo" ✓
+   →   if name in task.robots: ✓
+   →     task.robots["keyboard_aliengo"].apply_action(action)
+
+6. aliengo.py.apply_action()
+   → for controller_name, controller_action in action.items():
+   →   controller_name = "move_by_speed" ✓
+   →   if controller_name in self.controllers: ✓
+   →     controller.action_to_control(controller_action)
+   →     self.articulation.apply_action(control) ✓
+```
+
+### 5.4 配置示例
+
+**正确的 envset JSON 配置**：
+
+```json
+{
+  "robots": {
+    "entries": [
+      {
+        "type": "aliengo",
+        "label": "keyboard_aliengo",
+        "spawn_path": "/World/aliengo",
+        "usd_path": "/path/to/aliengo_camera.usd",
+        "initial_pose": {
+          "position": [0.0, 0.0, 0.5],
+          "orientation_deg": 0.0
+        },
+        "control": {
+          "mode": "keyboard_move_by_speed",  // 关键：包含 "move_by_speed"
+          "params": {
+            "base_velocity": 1.0,
+            "base_turn_rate": 2.0
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+**支持的控制模式**：
+- `keyboard_move_by_speed` - 键盘直接控制速度（适合四足机器人）
+- `keyboard_locomotion` - 同上
+- 其他包含 `keyboard` 但不含 `move_by_speed` 的模式 - 使用 `move_to_point` 控制器
+
+### 5.5 调试建议
+
+如果遇到类似问题，可以通过以下方式排查：
+
+1. **检查动作格式**：在 `standalone.py._collect_actions()` 中添加打印
+   ```python
+   print(f"[DEBUG] Actions: {actions}")
+   # 应该看到：[{"keyboard_aliengo": {"move_by_speed": (x, y, z)}}]
+   ```
+
+2. **检查控制器注册**：在运行时打印
+   ```python
+   print(f"[DEBUG] Robot controllers: {list(robot.controllers.keys())}")
+   # 应该看到：['move_by_speed']
+   ```
+
+3. **观察警告信息**：
+   - `[WARNING] unknown controller move_by_speed in action` → 控制器类型不匹配
+   - 无警告但机器人不动 → 动作数据结构问题
+
+## 6. 兼容性处理
+
+### 6.1 可选扩展支持
 
 某些 Isaac Sim extensions 可能在不同版本中不可用，已做兼容处理：
 
@@ -265,7 +497,7 @@ class ColliderConfig:
 - `simulation.py:1218-1221` - 使用前检查可用性
 - `standalone.py:149-154` - 尝试启用但失败不影响启动
 
-## 6. 现存缺口 / TODO
+## 7. 现存缺口 / TODO
 
 1. ~~**机器人类型扩展**~~ ✅ **已完成**
    - ✅ 支持 `aliengo`（四足）、`h1`、`g1`、`gr1`（人形）、`franka`（机械臂）等类型
@@ -289,11 +521,16 @@ class ColliderConfig:
    - ✅ 主循环从 `sim_app.update()` 改为 `runner.step(actions)`
    - ✅ 自动检测 `control.mode` 中的 "keyboard" 标识
    - ✅ 支持混合模式：键盘控制和自主导航可同时运行
+   - ✅ **修复动作数据结构不匹配问题**（2024-11）
    - **实现说明**：
      - 如果envset中有 `control.mode` 包含 "keyboard"，自动初始化键盘交互
      - 键盘映射：I/K前后，J/L左右，U/O上下（适配legged robots）
      - 支持多机器人键盘控制
      - 向后兼容：无keyboard配置时等同于原有的自主运行模式
+   - **关键修复**（2024-11）：
+     - **问题**：`standalone.py` 构建的动作格式 `{控制器名称: 动作}` 与 `runner.py` 期望的 `{机器人名称: {控制器名称: 动作}}` 不匹配，导致动作被静默丢弃
+     - **修复**：在 `standalone.py._collect_actions()` 中构建正确的嵌套结构，确保动作能传递到机器人
+     - **控制器匹配**：根据 `control.mode` 中的 `move_by_speed` 标识，在 `task_adapter.py` 中为四足机器人选择对应的基础控制器（`move_by_speed` vs `move_to_point`）
 
 3. **机器人控制策略说明**
    - 建议在文档中明确 envset `robots.entries[].control` 的字段含义（例如 `mode`, `module` 仅供回溯，实际控制交由 InternUtopia controllers，并通过 `params` 决定差速/速度等）。
@@ -309,9 +546,9 @@ class ColliderConfig:
    - ✅ 改进碰撞网格近似（convexDecomposition）和偏移参数
    - 详见 **第 4 章：物理仿真稳定性修复**
 
-## 7. 使用示例
+## 8. 使用示例
 
-### 7.0 基本运行命令
+### 8.0 基本运行命令
 
 如果你的自定义扩展（如 isaaclab extensions）在特定目录：
 
@@ -343,7 +580,7 @@ python -m internutopia_extension.envset.standalone \
 - 如果你的 `omni.isaac.matterport` 等扩展在 isaaclab 的 `source` 目录，使用这个参数指定
 - `source` 目录结构通常是：`isaaclab/source/omni.isaac.matterport/config/extension.toml`
 
-### 5.1 支持的机器人类型
+### 8.1 支持的机器人类型
 
 在 `envset.json` 的 `robots.entries[].type` 字段中可以使用以下值：
 
@@ -352,7 +589,7 @@ python -m internutopia_extension.envset.standalone \
 - **人形机器人**：`h1`、`g1`、`gr1`、`human`
 - **机械臂**：`franka`
 
-### 5.2 机器人控制参数
+### 8.2 机器人控制参数
 
 在 `robots.entries[].control` 中可配置：
 
@@ -377,7 +614,7 @@ python -m internutopia_extension.envset.standalone \
 - `J` / `L` → 左移 / 右移（横向）
 - `U` / `O` → 上升 / 下降（仅支持的机器人）
 
-### 5.3 数据生成配置（可选）
+### 8.3 数据生成配置（可选）
 
 在 `envset.json` 的 scenario 中添加 `data_generation` 字段：
 
@@ -406,7 +643,7 @@ python -m internutopia_extension.envset.standalone \
   --run-data
 ```
 
-### 5.4 键盘控制机器人配置
+### 8.4 键盘控制机器人配置
 
 在 `envset.json` 中配置键盘控制的aliengo机器人示例：
 
@@ -449,7 +686,7 @@ python -m internutopia_extension.envset.standalone \
 - `task_configs` 必须包含至少一个task条目（即使内容为空），envset会将场景、机器人等信息注入到这个task中
 - 不能使用完全空的 `task_configs: []`，因为EnvsetTaskAugmentor会迭代现有task来注入envset数据
 
-## 8. 自定义 Extension 集成
+## 9. 自定义 Extension 集成
 
 如果你有自己的 Isaac Sim extension（带 `extension.toml`），可以通过以下方式集成：
 
@@ -466,7 +703,7 @@ python -m internutopia_extension.envset.standalone \
 
 详细说明请参考：[自定义 Extension 集成指南](custom_extensions_guide.md)
 
-## 9. 后续可选优化
+## 10. 后续可选优化
 
 1. **配置Schema验证**：使用Pydantic或JSON Schema验证envset.json格式
 2. **文档完善**：补充CLI/文档，说明envset JSON中各字段的详细约定

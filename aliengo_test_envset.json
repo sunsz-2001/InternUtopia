@@ -23,15 +23,38 @@
       },
       "virtual_humans": {
         "category": "Builtin",
-        "count": 0,
-        "name_sequence": [],
-        "assets": {},
+        "count": 1,
+        "name_sequence": [
+          "Character"
+        ],
+        "assets": {
+          "Character": "original_male_adult_medical_01/male_adult_medical_01.usd"
+        },
         "asset_root": {
           "path": "/home/ubuntu/sunsz/IsaacAssets/People/Characters",
           "fallback": ""
         },
-        "spawn_points": [],
-        "routes": []
+        "spawn_points": [
+          {
+            "name": "Character",
+            "position": [
+              -6.0,
+              -4.0,
+              0.0
+            ],
+            "orientation_deg": 0.0
+          }
+        ],
+        "routes": [
+          {
+            "name": "Character",
+            "commands": [
+              "Character LookAround 1.0",
+              "Character GoTo -5.0 -4.0 0.0 _",
+              "Character Idle 1.0"
+            ]
+          }
+        ]
       },
       "robots": {
         "entries": [
