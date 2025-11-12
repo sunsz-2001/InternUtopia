@@ -623,19 +623,95 @@ class EnvsetStandaloneRunner:
         timeline.play()
 
     def _bake_navmesh_sync(self):
-        """同步烘焙 NavMesh（在主循环中调用）"""
+        """同步烘焙 NavMesh（使用阻塞方式）"""
         import carb  # type: ignore
-        import asyncio
-        from internutopia_extension.envset.runtime_hooks import EnvsetTaskRuntime
+        from internutopia_extension.envset.navmesh_utils import ensure_navmesh_volume
+        import omni.anim.navigation.core as nav  # type: ignore
         
-        carb.log_info("[EnvsetStandalone] Starting synchronous NavMesh baking...")
+        carb.log_info("[EnvsetStandalone] Starting NavMesh baking (blocking)...")
+        
         try:
-            # 使用 asyncio.run() 运行异步烘焙
-            success = asyncio.run(EnvsetTaskRuntime.bake_navmesh_async(self._bundle.scenario))
-            if success:
-                carb.log_info("[EnvsetStandalone] NavMesh baking completed successfully")
-            else:
+            scenario = self._bundle.scenario
+            navmesh_cfg = scenario.get("navmesh") or {}
+            scene_cfg = scenario.get("scene") or {}
+            
+            if not navmesh_cfg:
+                carb.log_error("[EnvsetStandalone] No navmesh config, skipping bake")
+                return
+            
+            # 解析 root_path（与 runtime_hooks.py 中的逻辑相同）
+            stage = self._runner._stage
+            scenario_id = scenario.get("id")
+            actual_scene_root = None
+            
+            if stage and scenario_id:
+                candidate_path = f"/World/{scenario_id}/scene"
+                prim = stage.GetPrimAtPath(candidate_path)
+                if prim and prim.IsValid():
+                    actual_scene_root = candidate_path
+            
+            if not actual_scene_root and stage:
+                for env_id in range(10):
+                    candidate_path = f"/World/env_{env_id}/scene"
+                    prim = stage.GetPrimAtPath(candidate_path)
+                    if prim and prim.IsValid():
+                        actual_scene_root = candidate_path
+                        break
+            
+            if not actual_scene_root:
+                carb.log_error("[EnvsetStandalone] Cannot find scene root for NavMesh baking")
+                return
+            
+            root_path = actual_scene_root
+            include_parent = navmesh_cfg.get("include_volume_parent") or "/World/NavMesh"
+            z_padding = navmesh_cfg.get("z_padding") or 2.0
+            min_size = navmesh_cfg.get("min_include_volume_size") or {}
+            min_xy = navmesh_cfg.get("min_include_xy") or min_size.get("xy") or None
+            min_z = navmesh_cfg.get("min_include_z") or min_size.get("z") or None
+            agent_radius = navmesh_cfg.get("agent_radius") or 10.0
+            
+            carb.log_info(f"[EnvsetStandalone] NavMesh bake root: {root_path}")
+            
+            # 创建 NavMesh volume
+            volumes = ensure_navmesh_volume(
+                root_prim_path=root_path,
+                z_padding=z_padding,
+                include_volume_parent=include_parent,
+                min_xy=min_xy,
+                min_z=min_z,
+            )
+            
+            if not volumes:
+                carb.log_error("[EnvsetStandalone] No NavMeshVolume created")
+                return
+            
+            # 等待几帧让体素注册
+            sim_app = self._runner.simulation_app
+            for _ in range(3):
+                sim_app.update()
+            
+            # 设置 agent radius
+            try:
+                import omni.kit.commands  # type: ignore
+                omni.kit.commands.execute(
+                    "ChangeSetting",
+                    path="/exts/omni.anim.navigation.core/navMesh/config/agentRadius",
+                    value=float(agent_radius),
+                )
+            except Exception:
+                pass
+            
+            # 同步烘焙（阻塞调用）
+            interface = nav.acquire_interface()
+            carb.log_info("[EnvsetStandalone] Starting NavMesh baking (blocking)...")
+            interface.start_navmesh_baking_and_wait()
+            navmesh = interface.get_navmesh()
+            
+            if navmesh is None:
                 carb.log_error("[EnvsetStandalone] NavMesh baking failed")
+            else:
+                carb.log_info("[EnvsetStandalone] NavMesh baking completed successfully")
+                
         except Exception as exc:
             carb.log_error(f"[EnvsetStandalone] NavMesh baking exception: {exc}")
             import traceback
