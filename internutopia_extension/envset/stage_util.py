@@ -759,7 +759,14 @@ class CharacterUtil:
             )
             biped_prim = stage.GetPrimAtPath(biped_prim_path)
 
-        populate_anim_graph()
+        carb.log_info("[CharacterUtil] Calling populate_anim_graph()...")
+        try:
+            populate_anim_graph()
+            print("[CharacterUtil] populate_anim_graph() completed successfully")
+        except Exception as exc:
+            print(f"[CharacterUtil] populate_anim_graph() failed: {exc}")
+            import traceback
+            print(f"[CharacterUtil] Traceback: {traceback.format_exc()}")
 
         return biped_prim
 
