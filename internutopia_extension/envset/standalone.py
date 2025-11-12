@@ -172,8 +172,11 @@ class EnvsetStandaloneRunner:
                     )
                 )
 
+        print("AgentManager instance exists:", AgentManager.has_instance())
         mgr = AgentManager.get_instance()
+        print("AgentManager instance:", mgr)
         agents = list(mgr.get_all_agent_names())
+        print("Agents:", agents)
         print(f"  Registered agents ({len(agents)}): {agents[:5]}")
         timeline = omni.timeline.get_timeline_interface()
         print(f"  Timeline playing?: {timeline.is_playing()}")
@@ -577,11 +580,11 @@ class EnvsetStandaloneRunner:
 
         # Read keyboard input
         command = self._keyboard.get_input()
-        print(f"[DEBUG] Keyboard command: {command}")
+        # print(f"[DEBUG] Keyboard command: {command}")
         x_speed = float(command[0] - command[1])  # I/K keys
         y_speed = float(command[2] - command[3])  # J/L keys
         z_speed = float(command[4] - command[5])  # U/O keys
-        print(f"[DEBUG] Computed speeds: x={x_speed}, y={y_speed}, z={z_speed}")
+        #print(f"[DEBUG] Computed speeds: x={x_speed}, y={y_speed}, z={z_speed}")
 
         # Build actions for all keyboard-controlled robots
         # 关键修复：动作格式必须是 {机器人名称: {控制器名称: 动作}}
@@ -599,7 +602,7 @@ class EnvsetStandaloneRunner:
                 env_action[robot_name] = {
                     controller_name: (x_speed, y_speed, z_speed)
                 }
-                print(f"[DEBUG] Built action for robot '{robot_name}': {{'{controller_name}': ({x_speed}, {y_speed}, {z_speed})}}")
+                # print(f"[DEBUG] Built action for robot '{robot_name}': {{'{controller_name}': ({x_speed}, {y_speed}, {z_speed})}}")
             actions.append(env_action)
 
         return actions
