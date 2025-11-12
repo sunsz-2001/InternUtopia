@@ -10,8 +10,20 @@ import sys
 from pathlib import Path
 
 # 注：omni、carb、pxr 等模块由 Isaac Sim 提供，只有在其 Python 解释器中运行时才存在。
-# 这里延后导入，以便使用普通 Python 执行脚本时给出清晰提示。
+# 这里延后导入，以便在普通 Python 环境中给出清晰提示。
 # 实际诊断逻辑会在 main() 中 import 这些模块。
+
+_simulation_app = None
+
+
+def _ensure_simulation_app():
+    """确保 SimulationApp 已创建（导入 carb/omni 前必须调用）。"""
+    global _simulation_app
+    if _simulation_app is None:
+        from isaacsim import SimulationApp  # type: ignore
+
+        print("[Diag] Initializing SimulationApp (headless)")
+        _simulation_app = SimulationApp({"headless": True})
 
 
 def _ensure_path_in_sys(path: Path):
@@ -29,6 +41,7 @@ def main():
 
     # 1. 检查扩展启用状态
     try:
+        _ensure_simulation_app()
         import carb  # type: ignore
         import omni  # type: ignore
         import omni.timeline  # type: ignore
@@ -48,6 +61,12 @@ def main():
         "omni.physxcommands",
         "isaacsim.anim.robot",
     ]
+
+    ext_manager = omni.kit.app.get_app().get_extension_manager()
+    print("\n[Extensions]")
+    for ext in must_extensions:
+        enabled = ext_manager.is_extension_enabled(ext)
+        print(f"{ext:40s} -> {enabled}")
 
     # 2. 获取 stage 与 World 信息
     ctx = omni.usd.get_context()
@@ -114,6 +133,15 @@ def main():
     print("Timeline playing?:", timeline.is_playing())
 
     print("\n诊断完成。")
+
+    # 如果是脚本内部创建的 SimulationApp，则关闭
+    global _simulation_app
+    if _simulation_app is not None:
+        try:
+            _simulation_app.close()
+        except Exception:
+            pass
+        _simulation_app = None
 
 
 if __name__ == "__main__":
