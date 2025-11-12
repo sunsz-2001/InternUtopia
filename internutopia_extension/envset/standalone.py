@@ -149,14 +149,25 @@ class EnvsetStandaloneRunner:
         if characters_root and characters_root.IsValid():
             for prim in Usd.PrimRange(characters_root):
                 if prim.GetTypeName() == "SkelRoot":
-                    graph_attr = prim.GetAttribute("omni:anim_graph:graph_path")
-                    graph_path = graph_attr.Get() if graph_attr and graph_attr.IsValid() else None
+                    # 使用正确的方法获取动画图引用
+                    graph_path = None
+                    try:
+                        from omni.anim.graph.schema import AnimGraphSchema  # type: ignore
+                        anim_graph_api = AnimGraphSchema.AnimationGraphAPI(prim)
+                        anim_graph_rel = anim_graph_api.GetAnimationGraphRel()
+                        if anim_graph_rel:
+                            targets = anim_graph_rel.GetTargets()
+                            if targets:
+                                graph_path = str(targets[0])
+                    except Exception:
+                        pass
+                    
                     scripts_attr = prim.GetAttribute("omni:scripting:scripts")
                     scripts = scripts_attr.Get() if scripts_attr and scripts_attr.IsValid() else None
                     skel_infos.append(
                         {
                             "path": str(prim.GetPath()),
-                            "graph": str(graph_path) if graph_path else "",
+                            "graph": graph_path or "",
                             "scripts": str(scripts) if scripts else "",
                         }
                     )
