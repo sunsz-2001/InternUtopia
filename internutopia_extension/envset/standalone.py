@@ -243,21 +243,12 @@ class EnvsetStandaloneRunner:
         # Import extensions (prepares robot/controller registrations)
         import_extensions()
 
-        print("[EnvsetStandalone] Initializing SimulationApp...")
-        # Initialize SimulationApp first (but don't create World yet)
-        self._init_simulation_app(config_model)
-
-        print("[EnvsetStandalone] Enabling critical extensions (before World creation)...")
-        # Enable critical extensions IMMEDIATELY after SimulationApp creation
-        # This is crucial for omni.anim.graph.core to initialize properly
-        self._enable_critical_extensions()
-
-        print("[EnvsetStandalone] Creating runner (initializing World and tasks)...")
-        # Now create the full runner (this will create World)
-        self._runner = self._create_runner_with_app(config_model)
+        print("[EnvsetStandalone] Creating runner (initializing SimulationApp)...")
+        # Create runner (this initializes SimulationApp)
+        self._runner = self._create_runner(config_model)
 
         print("[EnvsetStandalone] Preparing runtime settings...")
-        # Configure additional runtime settings
+        # Now we can use Isaac Sim modules (carb, etc.)
         self._prepare_runtime_settings()
 
         print("[EnvsetStandalone] Post-runner initialization...")
@@ -297,80 +288,21 @@ class EnvsetStandaloneRunner:
 
     # ---------- internal helpers ----------
 
-    def _init_simulation_app(self, config: Config):
-        """Initialize SimulationApp without creating World yet."""
-        from isaacsim import SimulationApp  # type: ignore
-        import os
-
-        headless = config.simulator.headless
-        
-        # Build launch config
-        launch_config = {
-            'headless': headless,
-            'anti_aliasing': 0,
-            'hide_ui': False,
-            'multi_gpu': False
-        }
-
-        # Add custom extension paths if specified
-        if hasattr(config.simulator, 'extension_folders') and config.simulator.extension_folders:
-            ext_paths = config.simulator.extension_folders
-            if 'ISAAC_EXTRA_EXT_PATH' in os.environ:
-                existing = os.environ['ISAAC_EXTRA_EXT_PATH']
-                os.environ['ISAAC_EXTRA_EXT_PATH'] = os.pathsep.join([existing] + ext_paths)
-            else:
-                os.environ['ISAAC_EXTRA_EXT_PATH'] = os.pathsep.join(ext_paths)
-
-        print(f"[EnvsetStandalone] Creating SimulationApp with config: {launch_config}")
-        self._external_sim_app = SimulationApp(launch_config)
-        # Apply the same post-init configuration as SimulatorRunner.setup_isaacsim
-        try:
-            self._external_sim_app._carb_settings.set('/physics/cooking/ujitsoCollisionCooking', False)
-        except Exception:
-            pass
-        print("[EnvsetStandalone] SimulationApp created successfully")
-
-    def _enable_critical_extensions(self):
-        """Enable critical extensions immediately after SimulationApp creation.
-        
-        This must happen BEFORE World creation to ensure omni.anim.graph.core
-        and related extensions are properly initialized.
-        """
-        import carb  # type: ignore
-        
-        print("[EnvsetStandalone] Enabling critical extensions for animation graph...")
-        try:
-            from omni.isaac.core.utils.extensions import enable_extension  # type: ignore
-
-            # CRITICAL: Animation graph extensions MUST be enabled before World creation
-            # This is required for Isaac Sim 5.0.0 where omni.anim.graph.core v107.3.0
-            # needs early initialization
-            enable_extension("omni.anim.graph.core")
-            enable_extension("omni.anim.retarget.core")
-            enable_extension("omni.anim.navigation.schema")
-            enable_extension("omni.anim.navigation.core")
-            enable_extension("omni.anim.navigation.meshtools")
-            enable_extension("omni.anim.people")
-            
-            carb.log_info("[EnvsetStandalone] Critical animation extensions enabled before World creation")
-        except Exception as exc:
-            carb.log_error(f"[EnvsetStandalone] FAILED to enable critical extensions: {exc}")
-            raise
-
     def _prepare_runtime_settings(self):
-        """Configure additional runtime settings and enable remaining extensions."""
+        # Import Isaac Sim modules here, after runner initialization
         import carb  # type: ignore
         import carb.settings  # type: ignore
 
-        # Enable remaining extensions (non-critical ones)
-        print("[EnvsetStandalone] Enabling remaining extensions...")
+        # Enable required extensions before importing envset modules
+        print("[EnvsetStandalone] Enabling required extensions...")
         try:
             from omni.isaac.core.utils.extensions import enable_extension  # type: ignore
 
-            # Core envset dependencies
+            # Core envset dependencies (based on extension.toml dependencies)
             enable_extension("omni.usd")
+            enable_extension("omni.anim.retarget.core")
             enable_extension("omni.kit.scripting")
-            enable_extension("omni.kit.mesh.raycast")
+            enable_extension("omni.kit.mesh.raycast")  # Required for raycast functionality
             enable_extension("omni.services.pip_archive")
             enable_extension("isaacsim.sensors.camera")
             enable_extension("isaacsim.sensors.physics")
@@ -378,23 +310,24 @@ class EnvsetStandaloneRunner:
             enable_extension("isaacsim.storage.native")
             enable_extension("isaacsim.core.utils")
             enable_extension("omni.metropolis.utils")
+            enable_extension("omni.anim.graph.core")
+            enable_extension("omni.anim.navigation.schema")
+            enable_extension("omni.anim.navigation.core")
+            enable_extension("omni.anim.navigation.meshtools")
+            enable_extension("omni.anim.people")
             enable_extension("isaacsim.anim.robot")
             enable_extension("omni.replicator.core")
             enable_extension("isaacsim.replicator.incident")
-            
-            try:
-                enable_extension("omni.physxcommands")
-            except Exception:
-                carb.log_warn("[EnvsetStandalone] omni.physxcommands not available (optional)")
+            enable_extension("omni.physxcommands")
 
-            # Optional: Matterport
+            # Optional: Matterport (may not be available in all Isaac Sim versions)
             try:
                 enable_extension("omni.isaac.matterport")
                 carb.log_info("[EnvsetStandalone] Matterport extension enabled")
             except Exception:
-                carb.log_warn("[EnvsetStandalone] Matterport extension not available")
+                carb.log_warn("[EnvsetStandalone] Matterport extension not available - Matterport scene import will be disabled")
 
-            carb.log_info("[EnvsetStandalone] Remaining extensions enabled")
+            carb.log_info("[EnvsetStandalone] Required extensions enabled")
         except Exception as exc:
             carb.log_warn(f"[EnvsetStandalone] Failed to enable some extensions: {exc}")
         finally:
@@ -451,57 +384,8 @@ class EnvsetStandaloneRunner:
         return config_model
 
     def _create_runner(self, config: Config) -> SimulatorRunner:
-        """Legacy method - creates runner with embedded SimulationApp."""
         task_manager = create_task_config_manager(config)
         runner = SimulatorRunner(config=config, task_config_manager=task_manager)
-        return runner
-
-    def _create_runner_with_app(self, config: Config) -> SimulatorRunner:
-        """Create runner using the pre-initialized SimulationApp."""
-        from internutopia.core.util import log
-
-        if not hasattr(self, "_external_sim_app") or self._external_sim_app is None:
-            raise RuntimeError("SimulationApp is not initialized. Call _init_simulation_app() first.")
-
-        # Prepare task manager (reuse helpers from core)
-        task_manager = create_task_config_manager(config)
-
-        # Define a subclass that reuses our already-created SimulationApp
-        external_app = self._external_sim_app
-
-        class _ReusableAppRunner(SimulatorRunner):
-            def __init__(self, *, _simulation_app, **kwargs):
-                self._external_sim_app = _simulation_app
-                super().__init__(**kwargs)
-
-            def setup_isaacsim(self):
-                # Reuse existing SimulationApp instead of creating a new one
-                self._simulation_app = self._external_sim_app
-                try:
-                    self._simulation_app._carb_settings.set('/physics/cooking/ujitsoCollisionCooking', False)
-                except Exception:
-                    pass
-
-                native = self.config.simulator.native
-                webrtc = self.config.simulator.webrtc
-
-                try:
-                    from isaacsim import util  # type: ignore
-                except ImportError:
-                    self.setup_streaming_420(native, webrtc)
-                else:
-                    if native:
-                        log.warning('native streaming is DEPRECATED, webrtc streaming is used instead')
-                    webrtc = native or webrtc
-                    self.setup_streaming_450(webrtc)
-
-        # Instantiate custom runner
-        runner = _ReusableAppRunner(
-            _simulation_app=external_app,
-            config=config,
-            task_config_manager=task_manager,
-        )
-
         return runner
 
     def _post_runner_initialize(self):
