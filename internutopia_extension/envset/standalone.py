@@ -265,8 +265,15 @@ class EnvsetStandaloneRunner:
         print("[EnvsetStandalone] Checking articulation paths and status...")
         self._debug_articulation_paths()
 
-        print("[EnvsetStandalone] Resetting environment...")
-        # Reset and start
+        # ⚠️ 关键：在 runner.reset() 之前烘焙 NavMesh
+        # runner.reset() 会启动 timeline，而虚拟人的行为脚本在 timeline 启动时初始化
+        # 脚本初始化时需要 NavMesh 已经准备好
+        print("[EnvsetStandalone] Baking NavMesh before runner.reset()...")
+        self._bake_navmesh_sync()
+        print("[EnvsetStandalone] NavMesh baking completed")
+
+        print("[EnvsetStandalone] Resetting environment (this will start timeline)...")
+        # Reset and start - 这会启动 timeline！
         self._runner.reset()
         self._print_runtime_snapshot("After runner.reset()")
 
@@ -274,12 +281,6 @@ class EnvsetStandaloneRunner:
         print("[EnvsetStandalone] Waiting for scene and objects to initialize...")
         self._wait_for_initialization()
         self._print_runtime_snapshot("After initialization wait")
-
-        # ⚠️ 关键：在 timeline 启动前烘焙 NavMesh
-        # 虚拟人的行为脚本在 timeline 启动时初始化，需要 NavMesh 已经准备好
-        print("[EnvsetStandalone] Baking NavMesh before timeline starts...")
-        self._bake_navmesh_sync()
-        print("[EnvsetStandalone] NavMesh baking completed")
 
         if self._args.run_data:
             self._init_data_generation()
