@@ -132,7 +132,7 @@ class EnvsetStandaloneRunner:
             return
 
         stage = omni.usd.get_context().get_stage()
-        print(f"[EnvsetStandalone] === Snapshot: {label} ===")
+        print(f"[EnvsetStandalone] === Snapshot: {label} === [CODE_VERSION: 2025-11-12-v2]")
         print(f"  Stage valid: {bool(stage)}")
 
         characters_root_path = None
@@ -151,38 +151,52 @@ class EnvsetStandaloneRunner:
                 if prim.GetTypeName() == "SkelRoot":
                     # 使用正确的方法获取动画图引用
                     graph_path = None
+                    has_api = False
+                    error_msg = None
                     try:
                         from omni.anim.graph.schema import AnimGraphSchema  # type: ignore
-                        anim_graph_api = AnimGraphSchema.AnimationGraphAPI(prim)
-                        anim_graph_rel = anim_graph_api.GetAnimationGraphRel()
-                        if anim_graph_rel:
-                            targets = anim_graph_rel.GetTargets()
-                            if targets:
-                                graph_path = str(targets[0])
-                    except Exception:
-                        pass
+                        has_api = prim.HasAPI("AnimationGraphAPI")
+                        if has_api:
+                            anim_graph_api = AnimGraphSchema.AnimationGraphAPI(prim)
+                            anim_graph_rel = anim_graph_api.GetAnimationGraphRel()
+                            if anim_graph_rel:
+                                targets = anim_graph_rel.GetTargets()
+                                if targets:
+                                    graph_path = str(targets[0])
+                                else:
+                                    error_msg = "rel_no_targets"
+                            else:
+                                error_msg = "no_rel"
+                        else:
+                            error_msg = "no_api"
+                    except Exception as exc:
+                        error_msg = f"exception:{exc}"
                     
                     scripts_attr = prim.GetAttribute("omni:scripting:scripts")
                     scripts = scripts_attr.Get() if scripts_attr and scripts_attr.IsValid() else None
-                    skel_infos.append(
-                        {
-                            "path": str(prim.GetPath()),
-                            "graph": graph_path or "",
-                            "scripts": str(scripts) if scripts else "",
-                        }
-                    )
+                    
+                    info_dict = {
+                        "path": str(prim.GetPath()),
+                        "graph": graph_path or "",
+                        "scripts": str(scripts) if scripts else "",
+                    }
+                    if error_msg:
+                        info_dict["error"] = error_msg
+                    
+                    skel_infos.append(info_dict)
                     if len(skel_infos) >= 5:
                         break
         print(f"  Detected SkelRoot count: {len(skel_infos)}")
         if skel_infos:
             for info in skel_infos:
-                print(
-                    "    SkelRoot: {path}, anim_graph={graph}, scripts={scripts}".format(
-                        path=info["path"],
-                        graph=info["graph"] or "None",
-                        scripts=info["scripts"] or "None",
-                    )
+                base_msg = "    SkelRoot: {path}, anim_graph={graph}, scripts={scripts}".format(
+                    path=info["path"],
+                    graph=info["graph"] or "None",
+                    scripts=info["scripts"] or "None",
                 )
+                if "error" in info:
+                    base_msg += f" [ERROR: {info['error']}]"
+                print(base_msg)
 
         print("AgentManager instance exists:", AgentManager.has_instance())
         mgr = AgentManager.get_instance()
