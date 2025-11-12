@@ -888,8 +888,13 @@ class EnvsetStandaloneRunner:
         import omni.timeline  # type: ignore
         timeline = omni.timeline.get_timeline_interface()
         if timeline.is_playing():
-            print("[EnvsetStandalone] Timeline is playing, waiting for articulations to initialize...")
+            print("[EnvsetStandalone] Timeline is already playing, waiting for articulations to initialize...")
             self._wait_for_articulations_initialized()
+            # 等待几帧让脚本有时间初始化
+            for _ in range(5):
+                sim_app.update()
+            # 打印 Agent 注册状态
+            self._print_runtime_snapshot("After timeline auto-started")
         else:
             print("[EnvsetStandalone] Timeline is paused. Articulations will initialize when timeline starts.")
 
