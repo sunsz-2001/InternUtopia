@@ -914,6 +914,8 @@ class EnvsetStandaloneRunner:
             if timeline_is_playing and not timeline_was_playing:
                 carb.log_info("[EnvsetStandalone] Timeline started, waiting for articulations to initialize...")
                 self._wait_for_articulations_initialized()
+                # 打印 Agent 注册状态快照
+                self._print_runtime_snapshot("After timeline started")
                 timeline_was_playing = True
             elif not timeline_is_playing:
                 timeline_was_playing = False
