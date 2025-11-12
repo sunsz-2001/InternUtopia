@@ -759,47 +759,17 @@ class CharacterUtil:
             )
             biped_prim = stage.GetPrimAtPath(biped_prim_path)
 
-        carb.log_info("[CharacterUtil] Calling populate_anim_graph()...")
-        try:
-            populate_anim_graph()
-            print("[CharacterUtil] populate_anim_graph() completed successfully")
-        except Exception as exc:
-            print(f"[CharacterUtil] populate_anim_graph() failed: {exc}")
-            import traceback
-            print(f"[CharacterUtil] Traceback: {traceback.format_exc()}")
-
-        # 诊断：检查 biped prim 的子节点
-        biped_prim = stage.GetPrimAtPath(biped_prim_path)
-        if biped_prim and biped_prim.IsValid():
-            print(f"[CharacterUtil] Biped prim children:")
-            for child in biped_prim.GetChildren():
-                print(f"  - {child.GetPath()} (type: {child.GetTypeName()})")
-                # 递归检查一层子节点
-                for grandchild in child.GetChildren():
-                    print(f"    - {grandchild.GetPath()} (type: {grandchild.GetTypeName()})")
-                    if grandchild.GetTypeName() == "AnimationGraph":
-                        print(f"      *** Found AnimationGraph at {grandchild.GetPath()} ***")
-
+        populate_anim_graph()
         return biped_prim
 
     def get_anim_graph_from_character(character_prim):
         if not character_prim or not character_prim.IsValid():
-            print(f"[CharacterUtil] get_anim_graph_from_character: invalid character_prim")
             return None
         
-        print(f"[CharacterUtil] Searching for AnimationGraph under {character_prim.GetPath()}")
-        found_prims = []
         for prim in Usd.PrimRange(character_prim):
-            found_prims.append(f"{prim.GetPath()} ({prim.GetTypeName()})")
             if prim.GetTypeName() == "AnimationGraph":
-                print(f"[CharacterUtil] Found AnimationGraph at {prim.GetPath()}")
                 return prim
         
-        print(f"[CharacterUtil] No AnimationGraph found. Searched {len(found_prims)} prims:")
-        for p in found_prims[:10]:  # 只打印前10个
-            print(f"  {p}")
-        if len(found_prims) > 10:
-            print(f"  ... and {len(found_prims) - 10} more")
         return None
 
     def get_default_biped_character():
@@ -818,35 +788,12 @@ class CharacterUtil:
         anim_graph_path = anim_graph_prim.GetPrimPath()
         paths = [Sdf.Path(prim.GetPrimPath()) for prim in character_skelroot_list]
         
-        print(f"[CharacterUtil] Applying AnimationGraph {anim_graph_path} to {len(paths)} characters:")
-        for p in paths:
-            print(f"  - {p}")
+        carb.log_info(f"[CharacterUtil] Applying AnimationGraph to {len(paths)} characters")
         
-        # 先移除旧的动画图 API
-        result1 = omni.kit.commands.execute("RemoveAnimationGraphAPICommand", paths=paths)
-        print(f"[CharacterUtil] RemoveAnimationGraphAPICommand result: {result1}")
-        
-        # 应用新的动画图 API
-        result2 = omni.kit.commands.execute(
+        omni.kit.commands.execute("RemoveAnimationGraphAPICommand", paths=paths)
+        omni.kit.commands.execute(
             "ApplyAnimationGraphAPICommand", paths=paths, animation_graph_path=Sdf.Path(anim_graph_path)
         )
-        print(f"[CharacterUtil] ApplyAnimationGraphAPICommand result: {result2}")
-        
-        # 验证应用是否成功
-        # 注意：Isaac Sim 5.0.0 中 AnimGraphSchema 不可用，我们只能检查 API 是否存在
-        stage = omni.usd.get_context().get_stage()
-        for char_prim in character_skelroot_list:
-            char_path = char_prim.GetPrimPath()
-            char_prim_refreshed = stage.GetPrimAtPath(char_path)
-            
-            # 检查是否有 AnimationGraphAPI
-            has_api = char_prim_refreshed.HasAPI('AnimationGraphAPI')
-            print(f"[CharacterUtil] Character {char_path} has AnimationGraphAPI: {has_api}")
-            
-            if not has_api:
-                print(f"[CharacterUtil] WARNING: Character {char_path} does not have AnimationGraphAPI!")
-        
-        print(f"[CharacterUtil] AnimationGraph application completed")
 
     def setup_python_scripts_to_character(character_skelroot_list: list, python_script_path):
         """

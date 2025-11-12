@@ -460,15 +460,6 @@ class EnvsetTaskRuntime:
         carb.log_info(f"[EnvsetRuntime] Attaching behavior script: {script_path}")
         CharacterUtil.setup_python_scripts_to_character(character_list, script_path)
         
-        # 验证脚本是否成功挂载
-        for char_prim in character_list:
-            scripts_attr = char_prim.GetAttribute("omni:scripting:scripts")
-            if scripts_attr and scripts_attr.IsValid():
-                scripts = scripts_attr.Get()
-                carb.log_info(f"[EnvsetRuntime] Character {char_prim.GetPath()} scripts: {scripts}")
-            else:
-                carb.log_warn(f"[EnvsetRuntime] Character {char_prim.GetPath()} has no scripts attribute!")
-        
         SemanticsUtils.add_update_prim_metrosim_semantics(character_list, type_value="class", name="character")
 
     @classmethod

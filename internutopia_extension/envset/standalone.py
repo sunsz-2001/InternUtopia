@@ -275,6 +275,12 @@ class EnvsetStandaloneRunner:
         self._wait_for_initialization()
         self._print_runtime_snapshot("After initialization wait")
 
+        # ⚠️ 关键：在 timeline 启动前烘焙 NavMesh
+        # 虚拟人的行为脚本在 timeline 启动时初始化，需要 NavMesh 已经准备好
+        print("[EnvsetStandalone] Baking NavMesh before timeline starts...")
+        self._bake_navmesh_sync()
+        print("[EnvsetStandalone] NavMesh baking completed")
+
         if self._args.run_data:
             self._init_data_generation()
             self._run_data_generation()
@@ -910,10 +916,7 @@ class EnvsetStandaloneRunner:
         import omni.timeline  # type: ignore
         timeline = omni.timeline.get_timeline_interface()
         if timeline.is_playing():
-            print("[EnvsetStandalone] Timeline is already playing, baking NavMesh...")
-            # 烘焙 NavMesh（虚拟人导航的必要条件）
-            self._bake_navmesh_sync()
-            print("[EnvsetStandalone] Waiting for articulations to initialize...")
+            print("[EnvsetStandalone] Timeline is already playing, waiting for articulations to initialize...")
             self._wait_for_articulations_initialized()
             # 等待几帧让脚本有时间初始化
             for _ in range(5):
@@ -942,10 +945,7 @@ class EnvsetStandaloneRunner:
             # 检查 timeline 状态变化：如果从暂停变为播放，等待 articulation 初始化
             timeline_is_playing = timeline.is_playing()
             if timeline_is_playing and not timeline_was_playing:
-                carb.log_info("[EnvsetStandalone] Timeline started, baking NavMesh...")
-                # 烘焙 NavMesh（虚拟人导航的必要条件）
-                self._bake_navmesh_sync()
-                carb.log_info("[EnvsetStandalone] Waiting for articulations to initialize...")
+                carb.log_info("[EnvsetStandalone] Timeline started, waiting for articulations to initialize...")
                 self._wait_for_articulations_initialized()
                 # 打印 Agent 注册状态快照
                 self._print_runtime_snapshot("After timeline started")
