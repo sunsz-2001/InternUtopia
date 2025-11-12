@@ -252,7 +252,7 @@ class EnvsetStandaloneRunner:
         self._prepare_runtime_settings()
 
         print("[EnvsetStandalone] Creating runner (reusing SimulationApp)...")
-        self._runner = self._create_runner(config_model)
+        self._runner = self._create_runner_with_app(config_model)
 
         print("[EnvsetStandalone] Post-runner initialization...")
         self._post_runner_initialize()
@@ -466,14 +466,17 @@ class EnvsetStandaloneRunner:
         config_model = _parse_config_model(merged)
         return config_model
 
-    def _create_runner(self, config: Config) -> SimulatorRunner:
+    def _create_runner_with_app(self, config: Config) -> SimulatorRunner:
+        """创建 SimulatorRunner，复用已初始化的 SimulationApp"""
         task_manager = create_task_config_manager(config)
         if self._simulation_app is None:
             raise RuntimeError("SimulationApp must be initialized before creating SimulatorRunner.")
 
+        # 临时替换 setup_isaacsim，让 SimulatorRunner 复用我们的 SimulationApp
         original_setup = SimulatorRunner.setup_isaacsim
 
         def _reuse_setup(runner_self):
+            # 直接设置私有属性 _simulation_app（不能用 property setter）
             runner_self._simulation_app = self._simulation_app
             runner_self._simulation_app._carb_settings.set("/physics/cooking/ujitsoCollisionCooking", False)
             self._reuse_streaming_configuration(runner_self)
