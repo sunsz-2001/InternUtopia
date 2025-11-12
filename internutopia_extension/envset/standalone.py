@@ -322,7 +322,12 @@ class EnvsetStandaloneRunner:
                 os.environ['ISAAC_EXTRA_EXT_PATH'] = os.pathsep.join(ext_paths)
 
         print(f"[EnvsetStandalone] Creating SimulationApp with config: {launch_config}")
-        self.simulation_app = SimulationApp(launch_config)
+        self._external_sim_app = SimulationApp(launch_config)
+        # Apply the same post-init configuration as SimulatorRunner.setup_isaacsim
+        try:
+            self._external_sim_app._carb_settings.set('/physics/cooking/ujitsoCollisionCooking', False)
+        except Exception:
+            pass
         print("[EnvsetStandalone] SimulationApp created successfully")
 
     def _enable_critical_extensions(self):
@@ -452,68 +457,51 @@ class EnvsetStandaloneRunner:
         return runner
 
     def _create_runner_with_app(self, config: Config) -> SimulatorRunner:
-        """Create runner using the pre-initialized SimulationApp.
-        
-        This method creates the SimulatorRunner but skips the SimulationApp
-        initialization since it was already done in _init_simulation_app().
-        """
-        from internutopia.core.scene.scene import IScene
-        from omni.isaac.core import World  # type: ignore
+        """Create runner using the pre-initialized SimulationApp."""
         from internutopia.core.util import log
-        
-        # Create task manager
+
+        if not hasattr(self, "_external_sim_app") or self._external_sim_app is None:
+            raise RuntimeError("SimulationApp is not initialized. Call _init_simulation_app() first.")
+
+        # Prepare task manager (reuse helpers from core)
         task_manager = create_task_config_manager(config)
-        
-        # Create a custom runner that uses our pre-initialized SimulationApp
-        runner = SimulatorRunner.__new__(SimulatorRunner)
-        runner.config = config
-        runner.task_config_manager = task_manager
-        runner.env_num = config.env_num
-        
-        # Set the simulation_app we already created
-        runner.simulation_app = self.simulation_app
-        
-        # Now create World (this is safe because extensions are already enabled)
-        physics_dt = config.simulator.physics_dt
-        rendering_dt = config.simulator.rendering_dt
-        physics_dt = eval(physics_dt) if isinstance(physics_dt, str) else physics_dt
-        runner.dt = physics_dt
-        rendering_dt = eval(rendering_dt) if isinstance(rendering_dt, str) else rendering_dt
-        use_fabric = config.simulator.use_fabric
-        
-        log.info(f'simulator params: physics dt={physics_dt}, rendering dt={rendering_dt}, use_fabric={use_fabric}')
-        print("[DEBUG] Before World creation (with extensions enabled)")
-        runner._world = World(
-            physics_dt=physics_dt,
-            rendering_dt=rendering_dt,
-            stage_units_in_meters=1.0,
-            sim_params={'use_fabric': use_fabric},
-        )
-        print("[DEBUG] After World creation")
-        
-        # Initialize remaining runner attributes
-        runner._scene = IScene.create()
-        runner._stage = runner._world.stage
-        runner.task_name_to_env_id_map = {}
-        runner.env_id_to_task_name_map = {}
-        runner.finished_tasks = set()
-        runner.render_interval = config.simulator.rendering_interval if config.simulator.rendering_interval is not None else 5
-        runner.render_trigger = 0
-        runner.loop = False
-        runner._render = False
-        runner.metrics_config = None
-        runner.metrics_save_path = config.metrics_save_path
-        
-        if runner.metrics_save_path != 'console':
-            try:
-                with open(runner.metrics_save_path, 'w'):
+
+        # Define a subclass that reuses our already-created SimulationApp
+        external_app = self._external_sim_app
+
+        class _ReusableAppRunner(SimulatorRunner):
+            def __init__(self, *, _simulation_app, **kwargs):
+                self._external_sim_app = _simulation_app
+                super().__init__(**kwargs)
+
+            def setup_isaacsim(self):
+                # Reuse existing SimulationApp instead of creating a new one
+                self._simulation_app = self._external_sim_app
+                try:
+                    self._simulation_app._carb_settings.set('/physics/cooking/ujitsoCollisionCooking', False)
+                except Exception:
                     pass
-            except Exception as e:
-                log.error(f'Can not create result file at {runner.metrics_save_path}.')
-                raise e
-        
-        log.info(f'rendering interval: {runner.render_interval}')
-        
+
+                native = self.config.simulator.native
+                webrtc = self.config.simulator.webrtc
+
+                try:
+                    from isaacsim import util  # type: ignore
+                except ImportError:
+                    self.setup_streaming_420(native, webrtc)
+                else:
+                    if native:
+                        log.warning('native streaming is DEPRECATED, webrtc streaming is used instead')
+                    webrtc = native or webrtc
+                    self.setup_streaming_450(webrtc)
+
+        # Instantiate custom runner
+        runner = _ReusableAppRunner(
+            _simulation_app=external_app,
+            config=config,
+            task_config_manager=task_manager,
+        )
+
         return runner
 
     def _post_runner_initialize(self):
