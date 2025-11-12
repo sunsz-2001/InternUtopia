@@ -783,9 +783,23 @@ class CharacterUtil:
         return biped_prim
 
     def get_anim_graph_from_character(character_prim):
+        if not character_prim or not character_prim.IsValid():
+            print(f"[CharacterUtil] get_anim_graph_from_character: invalid character_prim")
+            return None
+        
+        print(f"[CharacterUtil] Searching for AnimationGraph under {character_prim.GetPath()}")
+        found_prims = []
         for prim in Usd.PrimRange(character_prim):
+            found_prims.append(f"{prim.GetPath()} ({prim.GetTypeName()})")
             if prim.GetTypeName() == "AnimationGraph":
+                print(f"[CharacterUtil] Found AnimationGraph at {prim.GetPath()}")
                 return prim
+        
+        print(f"[CharacterUtil] No AnimationGraph found. Searched {len(found_prims)} prims:")
+        for p in found_prims[:10]:  # 只打印前10个
+            print(f"  {p}")
+        if len(found_prims) > 10:
+            print(f"  ... and {len(found_prims) - 10} more")
         return None
 
     def get_default_biped_character():
