@@ -149,39 +149,18 @@ class EnvsetStandaloneRunner:
         if characters_root and characters_root.IsValid():
             for prim in Usd.PrimRange(characters_root):
                 if prim.GetTypeName() == "SkelRoot":
-                    # 使用正确的方法获取动画图引用
-                    graph_path = None
-                    has_api = False
-                    error_msg = None
-                    try:
-                        from omni.anim.graph.schema import AnimGraphSchema  # type: ignore
-                        has_api = prim.HasAPI("AnimationGraphAPI")
-                        if has_api:
-                            anim_graph_api = AnimGraphSchema.AnimationGraphAPI(prim)
-                            anim_graph_rel = anim_graph_api.GetAnimationGraphRel()
-                            if anim_graph_rel:
-                                targets = anim_graph_rel.GetTargets()
-                                if targets:
-                                    graph_path = str(targets[0])
-                                else:
-                                    error_msg = "rel_no_targets"
-                            else:
-                                error_msg = "no_rel"
-                        else:
-                            error_msg = "no_api"
-                    except Exception as exc:
-                        error_msg = f"exception:{exc}"
+                    # 检查动画图和脚本状态（用于诊断）
+                    # 注意：Isaac Sim 5.0.0 中 AnimGraphSchema 不可用，我们只检查属性
+                    has_api = prim.HasAPI("AnimationGraphAPI")
                     
                     scripts_attr = prim.GetAttribute("omni:scripting:scripts")
                     scripts = scripts_attr.Get() if scripts_attr and scripts_attr.IsValid() else None
                     
                     info_dict = {
                         "path": str(prim.GetPath()),
-                        "graph": graph_path or "",
+                        "has_api": str(has_api),
                         "scripts": str(scripts) if scripts else "",
                     }
-                    if error_msg:
-                        info_dict["error"] = error_msg
                     
                     skel_infos.append(info_dict)
                     if len(skel_infos) >= 5:
@@ -189,14 +168,13 @@ class EnvsetStandaloneRunner:
         print(f"  Detected SkelRoot count: {len(skel_infos)}")
         if skel_infos:
             for info in skel_infos:
-                base_msg = "    SkelRoot: {path}, anim_graph={graph}, scripts={scripts}".format(
-                    path=info["path"],
-                    graph=info["graph"] or "None",
-                    scripts=info["scripts"] or "None",
+                print(
+                    "    SkelRoot: {path}, has_AnimGraphAPI={has_api}, scripts={scripts}".format(
+                        path=info["path"],
+                        has_api=info["has_api"],
+                        scripts=info["scripts"] or "None",
+                    )
                 )
-                if "error" in info:
-                    base_msg += f" [ERROR: {info['error']}]"
-                print(base_msg)
 
         print("AgentManager instance exists:", AgentManager.has_instance())
         mgr = AgentManager.get_instance()
@@ -636,6 +614,25 @@ class EnvsetStandaloneRunner:
         timeline = omni.timeline.get_timeline_interface()
         timeline.play()
 
+    def _bake_navmesh_sync(self):
+        """同步烘焙 NavMesh（在主循环中调用）"""
+        import carb  # type: ignore
+        import asyncio
+        from internutopia_extension.envset.runtime_hooks import EnvsetTaskRuntime
+        
+        carb.log_info("[EnvsetStandalone] Starting synchronous NavMesh baking...")
+        try:
+            # 使用 asyncio.run() 运行异步烘焙
+            success = asyncio.run(EnvsetTaskRuntime.bake_navmesh_async(self._bundle.scenario))
+            if success:
+                carb.log_info("[EnvsetStandalone] NavMesh baking completed successfully")
+            else:
+                carb.log_error("[EnvsetStandalone] NavMesh baking failed")
+        except Exception as exc:
+            carb.log_error(f"[EnvsetStandalone] NavMesh baking exception: {exc}")
+            import traceback
+            carb.log_error(traceback.format_exc())
+
     def _detect_keyboard_control(self):
         """Detect if any robot requires keyboard control."""
         import carb  # type: ignore
@@ -913,7 +910,10 @@ class EnvsetStandaloneRunner:
         import omni.timeline  # type: ignore
         timeline = omni.timeline.get_timeline_interface()
         if timeline.is_playing():
-            print("[EnvsetStandalone] Timeline is already playing, waiting for articulations to initialize...")
+            print("[EnvsetStandalone] Timeline is already playing, baking NavMesh...")
+            # 烘焙 NavMesh（虚拟人导航的必要条件）
+            self._bake_navmesh_sync()
+            print("[EnvsetStandalone] Waiting for articulations to initialize...")
             self._wait_for_articulations_initialized()
             # 等待几帧让脚本有时间初始化
             for _ in range(5):
@@ -942,7 +942,10 @@ class EnvsetStandaloneRunner:
             # 检查 timeline 状态变化：如果从暂停变为播放，等待 articulation 初始化
             timeline_is_playing = timeline.is_playing()
             if timeline_is_playing and not timeline_was_playing:
-                carb.log_info("[EnvsetStandalone] Timeline started, waiting for articulations to initialize...")
+                carb.log_info("[EnvsetStandalone] Timeline started, baking NavMesh...")
+                # 烘焙 NavMesh（虚拟人导航的必要条件）
+                self._bake_navmesh_sync()
+                carb.log_info("[EnvsetStandalone] Waiting for articulations to initialize...")
                 self._wait_for_articulations_initialized()
                 # 打印 Agent 注册状态快照
                 self._print_runtime_snapshot("After timeline started")

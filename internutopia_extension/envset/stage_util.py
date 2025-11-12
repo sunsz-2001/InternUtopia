@@ -833,7 +833,7 @@ class CharacterUtil:
         print(f"[CharacterUtil] ApplyAnimationGraphAPICommand result: {result2}")
         
         # 验证应用是否成功
-        from omni.anim.graph.schema import AnimGraphSchema  # type: ignore
+        # 注意：Isaac Sim 5.0.0 中 AnimGraphSchema 不可用，我们只能检查 API 是否存在
         stage = omni.usd.get_context().get_stage()
         for char_prim in character_skelroot_list:
             char_path = char_prim.GetPrimPath()
@@ -843,20 +843,8 @@ class CharacterUtil:
             has_api = char_prim_refreshed.HasAPI('AnimationGraphAPI')
             print(f"[CharacterUtil] Character {char_path} has AnimationGraphAPI: {has_api}")
             
-            # 使用正确的方法获取动画图引用
-            try:
-                anim_graph_api = AnimGraphSchema.AnimationGraphAPI(char_prim_refreshed)
-                anim_graph_rel = anim_graph_api.GetAnimationGraphRel()
-                if anim_graph_rel:
-                    targets = anim_graph_rel.GetTargets()
-                    if targets:
-                        print(f"[CharacterUtil] Character {char_path} AnimationGraph targets: {targets}")
-                    else:
-                        print(f"[CharacterUtil] Character {char_path} AnimationGraph has NO targets!")
-                else:
-                    print(f"[CharacterUtil] Character {char_path} has NO AnimationGraph relationship!")
-            except Exception as exc:
-                print(f"[CharacterUtil] Failed to get AnimationGraph for {char_path}: {exc}")
+            if not has_api:
+                print(f"[CharacterUtil] WARNING: Character {char_path} does not have AnimationGraphAPI!")
         
         print(f"[CharacterUtil] AnimationGraph application completed")
 

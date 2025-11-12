@@ -49,6 +49,7 @@ class EnvsetTaskRuntime:
 
     @classmethod
     def _setup_navmesh(cls, envset_cfg):
+        """同步方法：只创建 NavMesh volume，不烘焙"""
         if cls._navmesh_ready:
             return
         navmesh_cfg = envset_cfg.get("navmesh") or {}
@@ -137,7 +138,90 @@ class EnvsetTaskRuntime:
             min_xy=min_xy,
             min_z=min_z,
         )
+        # 注意：这里只创建了 volume，还没有烘焙！
+        # cls._navmesh_ready 将在 bake_navmesh_async 成功后设置
+        carb.log_info("[EnvsetRuntime] NavMesh volume created, ready for baking")
+
+    @classmethod
+    async def bake_navmesh_async(cls, envset_cfg):
+        """异步方法：真正烘焙 NavMesh"""
+        if cls._navmesh_ready:
+            carb.log_info("[EnvsetRuntime] NavMesh already baked, skipping")
+            return True
+        
+        navmesh_cfg = envset_cfg.get("navmesh") or {}
+        if not navmesh_cfg:
+            carb.log_warn("[EnvsetRuntime] No navmesh config, skipping bake")
+            return False
+        
+        scene_cfg = envset_cfg.get("scene") or {}
+        configured_bake_root = navmesh_cfg.get("bake_root_prim_path")
+        configured_scene_root = scene_cfg.get("root_prim_path")
+        
+        # 使用与 _setup_navmesh 相同的逻辑解析 root_path
+        stage = omni.usd.get_context().get_stage()
+        actual_scene_root = None
+        scenario_id = envset_cfg.get("scenario_id")
+        
+        if stage and scenario_id:
+            candidate_path = f"/World/{scenario_id}/scene"
+            prim = stage.GetPrimAtPath(candidate_path)
+            if prim and prim.IsValid():
+                actual_scene_root = candidate_path
+        
+        if not actual_scene_root and stage:
+            for env_id in range(10):
+                candidate_path = f"/World/env_{env_id}/scene"
+                prim = stage.GetPrimAtPath(candidate_path)
+                if prim and prim.IsValid():
+                    actual_scene_root = candidate_path
+                    break
+        
+        if actual_scene_root and configured_bake_root:
+            if not configured_bake_root.startswith("/"):
+                root_path = f"{actual_scene_root}/{configured_bake_root}"
+            elif configured_scene_root and configured_bake_root.startswith(configured_scene_root):
+                relative_path = configured_bake_root[len(configured_scene_root):].lstrip("/")
+                root_path = f"{actual_scene_root}/{relative_path}" if relative_path else actual_scene_root
+            else:
+                parts = configured_bake_root.strip("/").split("/")
+                if len(parts) > 1:
+                    relative_path = "/".join(parts[1:])
+                    root_path = f"{actual_scene_root}/{relative_path}"
+                else:
+                    root_path = configured_bake_root
+        elif actual_scene_root:
+            root_path = actual_scene_root
+        else:
+            root_path = configured_bake_root or configured_scene_root or "/World"
+        
+        include_parent = navmesh_cfg.get("include_volume_parent") or "/World/NavMesh"
+        z_padding = navmesh_cfg.get("z_padding") or 2.0
+        min_size = navmesh_cfg.get("min_include_volume_size") or {}
+        min_xy = navmesh_cfg.get("min_include_xy") or min_size.get("xy") or None
+        min_z = navmesh_cfg.get("min_include_z") or min_size.get("z") or None
+        agent_radius = navmesh_cfg.get("agent_radius") or 10.0
+        
+        carb.log_info(f"[EnvsetRuntime] Starting async NavMesh baking at: {root_path}")
+        
+        from internutopia_extension.envset.navmesh_utils import ensure_navmesh_async
+        
+        navmesh = await ensure_navmesh_async(
+            root_prim_path=root_path,
+            z_padding=z_padding,
+            include_volume_parent=include_parent,
+            min_xy=min_xy,
+            min_z=min_z,
+            agent_radius=agent_radius,
+        )
+        
+        if navmesh is None:
+            carb.log_error("[EnvsetRuntime] NavMesh baking failed!")
+            return False
+        
         cls._navmesh_ready = True
+        carb.log_info("[EnvsetRuntime] NavMesh baking completed successfully")
+        return True
 
     @classmethod
     def _setup_virtual_characters(cls, envset_cfg):
