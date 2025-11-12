@@ -83,10 +83,88 @@ class EnvsetStandaloneRunner:
     def request_shutdown(self):
         self._shutdown_flag = True
 
+    def _log_extension_status(self):
+        """打印关键扩展的启用状态，辅助诊断。"""
+        try:
+            import omni  # type: ignore
+        except ImportError:
+            print("[EnvsetStandalone] omni 模块不可用，无法打印扩展状态。")
+            return
+
+        extensions_to_check = [
+            "omni.usd",
+            "omni.anim.retarget.core",
+            "omni.kit.scripting",
+            "omni.kit.mesh.raycast",
+            "omni.services.pip_archive",
+            "isaacsim.sensors.camera",
+            "isaacsim.sensors.physics",
+            "isaacsim.sensors.rtx",
+            "isaacsim.storage.native",
+            "isaacsim.core.utils",
+            "omni.metropolis.utils",
+            "omni.anim.navigation.schema",
+            "omni.anim.navigation.core",
+            "omni.anim.navigation.meshtools",
+            "omni.anim.people",
+            "isaacsim.anim.robot",
+            "omni.replicator.core",
+            "isaacsim.replicator.incident",
+        ]
+
+        ext_manager = omni.kit.app.get_app().get_extension_manager()
+        print("[EnvsetStandalone] Extension status:")
+        for ext in extensions_to_check:
+            enabled = ext_manager.is_extension_enabled(ext)
+            print(f"  {ext:40s} -> {enabled}")
+
+    def _print_runtime_snapshot(self, label: str):
+        """打印 stage / 角色 / Agent 当前状态。"""
+        try:
+            import omni  # type: ignore
+            import omni.timeline  # type: ignore
+            from pxr import Usd  # type: ignore
+            from internutopia_extension.envset.agent_manager import AgentManager
+            from internutopia_extension.envset.settings import PrimPaths
+        except ImportError as exc:
+            print(f"[EnvsetStandalone] 无法导入调试所需模块: {exc}")
+            return
+
+        stage = omni.usd.get_context().get_stage()
+        print(f"[EnvsetStandalone] === Snapshot: {label} ===")
+        print(f"  Stage valid: {bool(stage)}")
+
+        characters_root_path = None
+        characters_root = None
+        if stage:
+            characters_root_path = PrimPaths.characters_parent_path()
+            characters_root = stage.GetPrimAtPath(characters_root_path)
+        print(
+            f"  Characters root: {characters_root_path or 'N/A'} -> "
+            f"{bool(characters_root and characters_root.IsValid())}"
+        )
+
+        skel_paths: list[str] = []
+        if characters_root and characters_root.IsValid():
+            for prim in Usd.PrimRange(characters_root):
+                if prim.GetTypeName() == "SkelRoot":
+                    skel_paths.append(str(prim.GetPath()))
+                    if len(skel_paths) >= 5:
+                        break
+        print(f"  Detected SkelRoot count: {len(skel_paths)}")
+        if skel_paths:
+            print("    Sample SkelRoots:", ", ".join(skel_paths))
+
+        mgr = AgentManager.get_instance()
+        agents = list(mgr.get_all_agent_names())
+        print(f"  Registered agents ({len(agents)}): {agents[:5]}")
+        timeline = omni.timeline.get_timeline_interface()
+        print(f"  Timeline playing?: {timeline.is_playing()}")
+
     def _debug_articulation_paths(self):
         """调试：检查articulation路径和状态"""
-        import omni
-        from pxr import Usd, Sdf
+        import omni  # type: ignore
+        from pxr import Usd, Sdf  # type: ignore
 
         stage = omni.usd.get_context().get_stage()
 
@@ -97,11 +175,11 @@ class EnvsetStandaloneRunner:
 
         # 2) 用 tensors 列举当前全场景 articulation 根
         try:
-            from isaacsim.core.simulation_manager import SimulationManager
+            from isaacsim.core.simulation_manager import SimulationManager  # type: ignore
             psv = SimulationManager.get_physics_sim_view()
         except Exception:
             try:
-                import omni.physics.tensors as phys
+                import omni.physics.tensors as phys  # type: ignore
                 psv = phys.create_simulation_view("numpy")
             except Exception:
                 print("[DEBUG] Cannot create physics simulation view")
@@ -158,6 +236,7 @@ class EnvsetStandaloneRunner:
 
         print("[EnvsetStandalone] Post-runner initialization...")
         self._post_runner_initialize()
+        self._print_runtime_snapshot("After post-runner initialization (before reset)")
 
         # 调试：检查articulation路径和状态
         print("[EnvsetStandalone] Checking articulation paths and status...")
@@ -166,10 +245,12 @@ class EnvsetStandaloneRunner:
         print("[EnvsetStandalone] Resetting environment...")
         # Reset and start
         self._runner.reset()
+        self._print_runtime_snapshot("After runner.reset()")
 
         # 等待场景和对象完全初始化
         print("[EnvsetStandalone] Waiting for scene and objects to initialize...")
         self._wait_for_initialization()
+        self._print_runtime_snapshot("After initialization wait")
 
         if self._args.run_data:
             self._init_data_generation()
@@ -193,13 +274,13 @@ class EnvsetStandaloneRunner:
 
     def _prepare_runtime_settings(self):
         # Import Isaac Sim modules here, after runner initialization
-        import carb
-        import carb.settings
+        import carb  # type: ignore
+        import carb.settings  # type: ignore
 
         # Enable required extensions before importing envset modules
         print("[EnvsetStandalone] Enabling required extensions...")
         try:
-            from omni.isaac.core.utils.extensions import enable_extension
+            from omni.isaac.core.utils.extensions import enable_extension  # type: ignore
 
             # Core envset dependencies (based on extension.toml dependencies)
             enable_extension("omni.usd")
@@ -232,6 +313,8 @@ class EnvsetStandaloneRunner:
             carb.log_info("[EnvsetStandalone] Required extensions enabled")
         except Exception as exc:
             carb.log_warn(f"[EnvsetStandalone] Failed to enable some extensions: {exc}")
+        finally:
+            self._log_extension_status()
 
         # Now safe to import envset modules that depend on these extensions
         from internutopia_extension.envset.settings import AssetPaths, Infos
@@ -251,7 +334,7 @@ class EnvsetStandaloneRunner:
         Infos.ext_path = str(Path(__file__).resolve().parent)
 
         try:
-            import warp
+            import warp  # type: ignore
 
             warp.init()
         except Exception as exc:
@@ -300,7 +383,7 @@ class EnvsetStandaloneRunner:
 
     def _init_data_generation(self):
         """Initialize DataGeneration for recording simulation data."""
-        import carb
+        import carb  # type: ignore
 
         try:
             from internutopia_extension.data_generation.data_generation import DataGeneration
@@ -335,7 +418,7 @@ class EnvsetStandaloneRunner:
 
     def _run_data_generation(self):
         """Run data generation asynchronously."""
-        import carb
+        import carb  # type: ignore
 
         if self._data_gen is None:
             carb.log_error("[EnvsetStandalone] DataGeneration not initialized")
@@ -352,8 +435,8 @@ class EnvsetStandaloneRunner:
             self._main_loop()
 
     def _wait_for_initialization(self):
-        import carb
-        from omni.isaac.core.simulation_context import SimulationContext
+        import carb  # type: ignore
+        from omni.isaac.core.simulation_context import SimulationContext  # type: ignore
 
         print("[EnvsetStandalone] Waiting for initialization...")
         # 获取 World 实例
@@ -390,14 +473,14 @@ class EnvsetStandaloneRunner:
             print(f"[EnvsetStandalone] Initialization wait failed: {e}, continuing anyway")
 
     def _start_timeline(self):
-        import omni.timeline
+        import omni.timeline  # type: ignore
 
         timeline = omni.timeline.get_timeline_interface()
         timeline.play()
 
     def _detect_keyboard_control(self):
         """Detect if any robot requires keyboard control."""
-        import carb
+        import carb  # type: ignore
 
         scenario = self._bundle.scenario
         robots_cfg = scenario.get("robots", {})
@@ -444,7 +527,7 @@ class EnvsetStandaloneRunner:
 
     def _init_keyboard(self):
         """Initialize keyboard interaction if needed."""
-        import carb
+        import carb  # type: ignore
 
         print("[DEBUG] Starting keyboard initialization...")
         self._keyboard_robots = self._detect_keyboard_control()
@@ -514,8 +597,8 @@ class EnvsetStandaloneRunner:
         Returns:
             bool: 如果所有 articulation 都已初始化返回 True，否则返回 False
         """
-        import carb
-        from omni.isaac.core.simulation_context import SimulationContext
+        import carb  # type: ignore
+        from omni.isaac.core.simulation_context import SimulationContext  # type: ignore
         
         if not self._runner:
             return False
@@ -528,7 +611,7 @@ class EnvsetStandaloneRunner:
         # 尝试获取 NavMesh 接口
         navmesh_interface = None
         try:
-            import omni.anim.navigation.core as nav
+            import omni.anim.navigation.core as nav  # type: ignore
             navmesh_interface = nav.acquire_interface()
         except Exception:
             pass
@@ -659,7 +742,7 @@ class EnvsetStandaloneRunner:
         return True
 
     def _main_loop(self):
-        import carb
+        import carb  # type: ignore
         print("[EnvsetStandalone] Entering main loop...")
         sim_app = self._runner.simulation_app if self._runner else None
         if sim_app is None:
@@ -669,7 +752,7 @@ class EnvsetStandaloneRunner:
         self._init_keyboard()
         print("[EnvsetStandalone] Keyboard control initialized")
         # 检查 timeline 是否正在播放，如果是则等待 articulation 初始化
-        import omni.timeline
+        import omni.timeline  # type: ignore
         timeline = omni.timeline.get_timeline_interface()
         if timeline.is_playing():
             print("[EnvsetStandalone] Timeline is playing, waiting for articulations to initialize...")
