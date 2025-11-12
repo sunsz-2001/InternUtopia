@@ -123,7 +123,6 @@ class SimulatorRunner:
               and metric updates for tasks that have been marked as finished.
         """
         """ ================ TODO: Key optimization interval ================= """
-        print(f"[DEBUG] Runner step called with {len(actions)} actions")
         terminated_status = []
         reward = []
 

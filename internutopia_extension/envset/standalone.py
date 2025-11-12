@@ -407,10 +407,11 @@ class EnvsetStandaloneRunner:
         for robot in robot_entries:
             control = robot.get("control", {})
             control_mode = (control.get("mode") or "").lower()
-            print(f"[DEBUG] Robot {robot.get('label', 'unknown')}: control_mode='{control_mode}'")
+            # 使用 label 作为机器人名称，这与 task.robots 字典中的键一致
+            robot_name = robot.get("label") or robot.get("type", "unknown")
+            print(f"[DEBUG] Robot {robot_name}: control_mode='{control_mode}'")
 
             if "keyboard" in control_mode:
-                robot_name = robot.get("label") or robot.get("type", "unknown")
                 robot_type = (robot.get("type") or "").lower()
 
                 # Map robot type to controller name
@@ -418,8 +419,8 @@ class EnvsetStandaloneRunner:
                 print(f"[DEBUG] Mapped robot_type '{robot_type}' to controller '{controller_name}'")
                 if controller_name:
                     keyboard_robots.append({
-                        "name": robot_name,
-                        "controller": controller_name,
+                        "name": robot_name,  # 这是机器人在 task.robots 中的键
+                        "controller": controller_name,  # 这是控制器的名称
                         "type": robot_type
                     })
                     carb.log_info(f"[EnvsetStandalone] Detected keyboard control for robot: {robot_name}")
@@ -482,12 +483,22 @@ class EnvsetStandaloneRunner:
         print(f"[DEBUG] Computed speeds: x={x_speed}, y={y_speed}, z={z_speed}")
 
         # Build actions for all keyboard-controlled robots
+        # 关键修复：动作格式必须是 {机器人名称: {控制器名称: 动作}}
+        # 这样才能匹配 runner.py 中 task.robots 字典的键
         actions = []
         for env_id in range(self._runner.env_num):
             env_action = {}
             for robot_cfg in self._keyboard_robots:
-                # Use the controller name as action key
-                env_action[robot_cfg["controller"]] = (x_speed, y_speed, z_speed)
+                # robot_cfg["name"] 是机器人在 task.robots 中的键（即 label）
+                # robot_cfg["controller"] 是控制器的名称
+                robot_name = robot_cfg["name"]
+                controller_name = robot_cfg["controller"]
+                
+                # 构建正确的嵌套结构：{机器人名称: {控制器名称: 动作}}
+                env_action[robot_name] = {
+                    controller_name: (x_speed, y_speed, z_speed)
+                }
+                print(f"[DEBUG] Built action for robot '{robot_name}': {{'{controller_name}': ({x_speed}, {y_speed}, {z_speed})}}")
             actions.append(env_action)
 
         return actions
