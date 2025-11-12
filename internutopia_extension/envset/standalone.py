@@ -457,7 +457,6 @@ class EnvsetStandaloneRunner:
         This method creates the SimulatorRunner but skips the SimulationApp
         initialization since it was already done in _init_simulation_app().
         """
-        from internutopia.core.task_config_manager import create_task_config_manager
         from internutopia.core.scene.scene import IScene
         from omni.isaac.core import World  # type: ignore
         from internutopia.core.util import log
