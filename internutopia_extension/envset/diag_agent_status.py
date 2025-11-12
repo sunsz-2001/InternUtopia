@@ -9,11 +9,9 @@
 import sys
 from pathlib import Path
 
-import carb
-import omni
-import omni.timeline
-import omni.usd
-from pxr import Usd
+# 注：omni、carb、pxr 等模块由 Isaac Sim 提供，只有在其 Python 解释器中运行时才存在。
+# 这里延后导入，以便使用普通 Python 执行脚本时给出清晰提示。
+# 实际诊断逻辑会在 main() 中 import 这些模块。
 
 
 def _ensure_path_in_sys(path: Path):
@@ -30,6 +28,18 @@ def main():
     print("=== Envset virtual human diagnostic ===")
 
     # 1. 检查扩展启用状态
+    try:
+        import carb  # type: ignore
+        import omni  # type: ignore
+        import omni.timeline  # type: ignore
+        import omni.usd  # type: ignore
+        from pxr import Usd  # type: ignore
+    except ImportError as exc:
+        print(f"导入 Isaac Sim 模块失败：{exc}")
+        print("请使用 Isaac Sim 自带的 python/sh 运行此脚本，例如：")
+        print("  /path/to/isaac-sim/python.sh -m internutopia_extension.envset.diag_agent_status")
+        return
+
     must_extensions = [
         "omni.anim.people",
         "omni.anim.navigation.core",
@@ -38,11 +48,6 @@ def main():
         "omni.physxcommands",
         "isaacsim.anim.robot",
     ]
-    ext_manager = omni.kit.app.get_app().get_extension_manager()
-    print("\n[Extensions]")
-    for ext in must_extensions:
-        enabled = ext_manager.is_extension_enabled(ext)
-        print(f"{ext:40s} -> {enabled}")
 
     # 2. 获取 stage 与 World 信息
     ctx = omni.usd.get_context()
