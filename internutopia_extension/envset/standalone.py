@@ -144,16 +144,33 @@ class EnvsetStandaloneRunner:
             f"{bool(characters_root and characters_root.IsValid())}"
         )
 
-        skel_paths: list[str] = []
+        skel_infos: list[dict[str, str]] = []
         if characters_root and characters_root.IsValid():
             for prim in Usd.PrimRange(characters_root):
                 if prim.GetTypeName() == "SkelRoot":
-                    skel_paths.append(str(prim.GetPath()))
-                    if len(skel_paths) >= 5:
+                    graph_attr = prim.GetAttribute("omni:anim_graph:graph_path")
+                    graph_path = graph_attr.Get() if graph_attr and graph_attr.IsValid() else None
+                    scripts_attr = prim.GetAttribute("omni:scripting:scripts")
+                    scripts = scripts_attr.Get() if scripts_attr and scripts_attr.IsValid() else None
+                    skel_infos.append(
+                        {
+                            "path": str(prim.GetPath()),
+                            "graph": str(graph_path) if graph_path else "",
+                            "scripts": str(scripts) if scripts else "",
+                        }
+                    )
+                    if len(skel_infos) >= 5:
                         break
-        print(f"  Detected SkelRoot count: {len(skel_paths)}")
-        if skel_paths:
-            print("    Sample SkelRoots:", ", ".join(skel_paths))
+        print(f"  Detected SkelRoot count: {len(skel_infos)}")
+        if skel_infos:
+            for info in skel_infos:
+                print(
+                    "    SkelRoot: {path}, anim_graph={graph}, scripts={scripts}".format(
+                        path=info["path"],
+                        graph=info["graph"] or "None",
+                        scripts=info["scripts"] or "None",
+                    )
+                )
 
         mgr = AgentManager.get_instance()
         agents = list(mgr.get_all_agent_names())
@@ -257,7 +274,6 @@ class EnvsetStandaloneRunner:
             self._run_data_generation()
         else:
             # 不再自动启动timeline，等待用户手动启动
-            print("[EnvsetStandalone] Ready. Timeline is paused. Please start timeline manually when ready.")
             print("[EnvsetStandalone] Entering main loop...")
             self._main_loop()
 
