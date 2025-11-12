@@ -817,10 +817,17 @@ class CharacterUtil:
 
         anim_graph_path = anim_graph_prim.GetPrimPath()
         paths = [Sdf.Path(prim.GetPrimPath()) for prim in character_skelroot_list]
+        
+        print(f"[CharacterUtil] Applying AnimationGraph {anim_graph_path} to {len(paths)} characters:")
+        for p in paths:
+            print(f"  - {p}")
+        
         omni.kit.commands.execute("RemoveAnimationGraphAPICommand", paths=paths)
         omni.kit.commands.execute(
             "ApplyAnimationGraphAPICommand", paths=paths, animation_graph_path=Sdf.Path(anim_graph_path)
         )
+        
+        print(f"[CharacterUtil] AnimationGraph application completed")
 
     def setup_python_scripts_to_character(character_skelroot_list: list, python_script_path):
         """
