@@ -822,10 +822,33 @@ class CharacterUtil:
         for p in paths:
             print(f"  - {p}")
         
-        omni.kit.commands.execute("RemoveAnimationGraphAPICommand", paths=paths)
-        omni.kit.commands.execute(
+        # 先移除旧的动画图 API
+        result1 = omni.kit.commands.execute("RemoveAnimationGraphAPICommand", paths=paths)
+        print(f"[CharacterUtil] RemoveAnimationGraphAPICommand result: {result1}")
+        
+        # 应用新的动画图 API
+        result2 = omni.kit.commands.execute(
             "ApplyAnimationGraphAPICommand", paths=paths, animation_graph_path=Sdf.Path(anim_graph_path)
         )
+        print(f"[CharacterUtil] ApplyAnimationGraphAPICommand result: {result2}")
+        
+        # 验证应用是否成功
+        stage = omni.usd.get_context().get_stage()
+        for char_prim in character_skelroot_list:
+            char_path = char_prim.GetPrimPath()
+            char_prim_refreshed = stage.GetPrimAtPath(char_path)
+            
+            # 检查是否有 AnimationGraphAPI
+            has_api = char_prim_refreshed.HasAPI('AnimationGraphAPI')
+            print(f"[CharacterUtil] Character {char_path} has AnimationGraphAPI: {has_api}")
+            
+            # 尝试获取动画图属性
+            anim_graph_attr = char_prim_refreshed.GetAttribute('animationGraph')
+            if anim_graph_attr and anim_graph_attr.IsValid():
+                anim_graph_value = anim_graph_attr.Get()
+                print(f"[CharacterUtil] Character {char_path} animationGraph attribute: {anim_graph_value}")
+            else:
+                print(f"[CharacterUtil] Character {char_path} has NO animationGraph attribute!")
         
         print(f"[CharacterUtil] AnimationGraph application completed")
 
