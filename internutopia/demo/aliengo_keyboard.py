@@ -27,7 +27,7 @@ def main():
         ),
         task_configs=[
             SingleInferenceTaskCfg(
-                scene_asset_path=gm.ASSET_PATH + '/scenes/empty.usd',
+                scene_asset_path='/home/ubuntu/sunsz/IsaacAssets/Environments/Simple_Warehouse/full_warehouse.usd',
                 robots=[
                     AliengoRobotCfg(
                         position=(0.0, 0.0, 1.05),
