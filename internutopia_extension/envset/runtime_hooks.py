@@ -510,13 +510,13 @@ class EnvsetTaskRuntime:
         script_path = BehaviorScriptPaths.behavior_script_path()
         carb.log_info(f"[EnvsetRuntime] Attaching behavior script: {script_path}")
         CharacterUtil.setup_python_scripts_to_character(character_list, script_path)
-        cls._await_script_manager_instances(character_list)
-        
-        SemanticsUtils.add_update_prim_metrosim_semantics(character_list, type_value="class", name="character")
         try:
             CharacterUtil.register_characters_with_world(character_list)
         except Exception as exc:
             print(f"[EnvsetRuntime][DEBUG] Failed to register characters with World scene: {exc}")
+        cls._await_script_manager_instances(character_list)
+        
+        SemanticsUtils.add_update_prim_metrosim_semantics(character_list, type_value="class", name="character")
 
     @staticmethod
     def _await_script_manager_instances(character_list, max_attempts: int = 6):
@@ -609,6 +609,12 @@ class EnvsetTaskRuntime:
                         inst.init_character()
                 except Exception as exc:
                     print(f"[EnvsetRuntime][DEBUG] init_character failed for {inst}: {exc}")
+                try:
+                    if hasattr(inst, "on_play"):
+                        print(f"[EnvsetRuntime][DEBUG] Calling on_play() on {inst}")
+                        inst.on_play()
+                except Exception as exc:
+                    print(f"[EnvsetRuntime][DEBUG] on_play failed for {inst}: {exc}")
                 if mgr and hasattr(inst, "get_agent_name"):
                     try:
                         agent_name = inst.get_agent_name()
