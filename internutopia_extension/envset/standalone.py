@@ -270,13 +270,29 @@ class EnvsetStandaloneRunner:
         self._runner.reset()
         self._print_runtime_snapshot("After runner.reset()")
 
-        # ⚠️ 关键：在 runner.reset() 之后烘焙 NavMesh
+        # ⚠️ 关键步骤 1：在 runner.reset() 之后烘焙 NavMesh
         # runner.reset() 已经加载了场景到 /World/env_0/scene
         # 虽然 timeline 已经启动，但虚拟人脚本还需要几帧才会真正初始化
         # 我们必须在脚本初始化之前完成 NavMesh 烘焙
         print("[EnvsetStandalone] Baking NavMesh (scene is now loaded)...")
-        self._bake_navmesh_sync()
-        print("[EnvsetStandalone] NavMesh baking completed")
+        navmesh_success = self._bake_navmesh_sync()
+        if navmesh_success:
+            print("[EnvsetStandalone] NavMesh baking completed successfully")
+        else:
+            print("[EnvsetStandalone] NavMesh baking failed or skipped")
+
+        # ⚠️ 关键步骤 2：在 NavMesh 烘焙完成后，初始化虚拟人物的行为脚本和动画图
+        # 这个时机确保了：
+        # 1. NavMesh 已经准备好
+        # 2. 虚拟人物的 USD prim 已经 spawn
+        # 3. Timeline 已经启动，但脚本还没有开始运行
+        if navmesh_success:
+            from internutopia_extension.envset.runtime_hooks import EnvsetTaskRuntime
+            print("[EnvsetStandalone] Initializing virtual humans (attaching behaviors)...")
+            EnvsetTaskRuntime.initialize_virtual_humans(self._bundle.scenario)
+            print("[EnvsetStandalone] Virtual humans initialization completed")
+        else:
+            print("[EnvsetStandalone] Skipping virtual human initialization due to NavMesh failure")
 
         # 等待场景和对象完全初始化
         print("[EnvsetStandalone] Waiting for scene and objects to initialize...")
@@ -626,6 +642,7 @@ class EnvsetStandaloneRunner:
         """同步烘焙 NavMesh（使用阻塞方式）"""
         import carb  # type: ignore
         from internutopia_extension.envset.navmesh_utils import ensure_navmesh_volume
+        from internutopia_extension.envset.runtime_hooks import EnvsetTaskRuntime
         import omni.anim.navigation.core as nav  # type: ignore
         
         carb.log_info("[EnvsetStandalone] Starting NavMesh baking (blocking)...")
@@ -637,7 +654,7 @@ class EnvsetStandaloneRunner:
             
             if not navmesh_cfg:
                 carb.log_error("[EnvsetStandalone] No navmesh config, skipping bake")
-                return
+                return False
             
             # 解析 root_path（与 runtime_hooks.py 中的逻辑相同）
             stage = self._runner._stage
@@ -660,7 +677,7 @@ class EnvsetStandaloneRunner:
             
             if not actual_scene_root:
                 carb.log_error("[EnvsetStandalone] Cannot find scene root for NavMesh baking")
-                return
+                return False
             
             root_path = actual_scene_root
             include_parent = navmesh_cfg.get("include_volume_parent") or "/World/NavMesh"
@@ -683,7 +700,7 @@ class EnvsetStandaloneRunner:
             
             if not volumes:
                 carb.log_error("[EnvsetStandalone] No NavMeshVolume created")
-                return
+                return False
             
             # 等待几帧让体素注册
             sim_app = self._runner.simulation_app
@@ -709,13 +726,18 @@ class EnvsetStandaloneRunner:
             
             if navmesh is None:
                 carb.log_error("[EnvsetStandalone] NavMesh baking failed")
+                return False
             else:
                 carb.log_info("[EnvsetStandalone] NavMesh baking completed successfully")
+                # 设置全局标志，标记 NavMesh 已就绪
+                EnvsetTaskRuntime._navmesh_ready = True
+                return True
                 
         except Exception as exc:
             carb.log_error(f"[EnvsetStandalone] NavMesh baking exception: {exc}")
             import traceback
             carb.log_error(traceback.format_exc())
+            return False
 
     def _detect_keyboard_control(self):
         """Detect if any robot requires keyboard control."""

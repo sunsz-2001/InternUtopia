@@ -133,15 +133,98 @@ envset JSON → RobotSpec (dataclass)
 
 在 `internutopia/core/task/task.py:104` 的 `load()` 末尾调用 `_apply_envset_runtime_hooks()`，由 `EnvsetTaskRuntime` 做以下工作：
 
-1. **NavMesh**：根据 `envset.navmesh` 创建/调整 NavMesh include volume（`ensure_navmesh_volume`）。
-2. **虚拟人加载**：
-   - 按 `virtual_humans` 的 spawn_point/name_sequence/assets 加载 USD；
-   - 为虚拟人绑定动画图 (`CharacterUtil.setup_animation_graph_to_character`) 与行为脚本 (`BehaviorScriptPaths.behavior_script_path`);
+1. **NavMesh Volume 创建**：根据 `envset.navmesh` 创建 NavMesh include volume（`ensure_navmesh_volume`），但**不立即烘焙**。
+2. **虚拟人 Spawn**（2024-11 重构）：
+   - 按 `virtual_humans` 的 spawn_point/name_sequence/assets 加载 USD prims；
+   - 应用碰撞体配置；
    - 设置语义信息、NavMesh 排除；
-   - 如果 `scene.category == "GRScenes"`，根据 `arrival_tolerance_m` 启用 `ArrivalGuard`。
-3. **Routes 注入**：监听 `AgentEvent.AgentRegistered`，在角色注册后调用 `AgentManager.inject_command()` 下发 envset routes（`GoTo`/`Idle` 等指令）。
+   - **不立即附加行为脚本和动画图**（延后到 NavMesh 烘焙完成后）。
+3. **Routes 配置**：监听 `AgentEvent.AgentRegistered`，在角色注册后调用 `AgentManager.inject_command()` 下发 envset routes（`GoTo`/`Idle` 等指令）。
 
-> 注意：目前未实现随机化、虚拟人碰撞体或 spawn shuffle——按需求明确无需支持。
+### 3.1 虚拟人初始化时序（2024-11-12 重构）
+
+**问题背景**：虚拟人物需要依赖 NavMesh 才能正确注册到 AgentManager 并执行导航命令。之前的实现存在时序问题：
+1. NavMesh 烘焙在场景加载前执行（失败）
+2. 行为脚本在 NavMesh 准备好之前就附加（Agent 注册失败）
+
+**新的初始化流程**：
+
+```
+1. runner.reset()
+   └─ task.load()
+       ├─ 加载场景 USD 到 /World/env_0/scene
+       └─ EnvsetTaskRuntime.configure_task()
+           ├─ _setup_navmesh() → 只创建 volume，不烘焙
+           ├─ _setup_virtual_routes() → 配置路由
+           └─ _setup_virtual_characters() → 只 spawn USD prims
+               ✅ 标记: _vh_spawned = True
+
+2. standalone.py::_bake_navmesh_sync()
+   ├─ 解析场景根路径（/World/env_0/scene）
+   ├─ ensure_navmesh_volume() → 创建 NavMesh volume
+   ├─ sim_app.update() × 3 → 等待体素注册
+   ├─ interface.start_navmesh_baking_and_wait() → 同步烘焙
+   └─ EnvsetTaskRuntime._navmesh_ready = True
+   ✅ 返回: True (成功) / False (失败)
+
+3. EnvsetTaskRuntime.initialize_virtual_humans()
+   ├─ 检查: _vh_spawned 必须为 True
+   ├─ 检查: _navmesh_ready 必须为 True
+   └─ _setup_character_behaviors()
+       ├─ load_default_biped_to_stage()
+       │   └─ populate_anim_graph() → 创建默认动画图
+       ├─ get_anim_graph_from_character()
+       ├─ setup_animation_graph_to_character()
+       │   └─ ApplyAnimationGraphAPICommand → 应用动画图
+       └─ setup_python_scripts_to_character()
+           └─ 附加 behavior_script.py 到每个角色
+               → 脚本执行时会注册到 AgentManager
+               → 触发 AgentEvent.AgentRegistered 事件
+               → _on_agent_registered() 注入路由命令
+```
+
+**关键时序说明**：
+
+- **为什么 NavMesh 烘焙必须在 runner.reset() 之后？**
+  - `runner.reset()` 内部会调用 `task.load()`，将场景 USD 加载到 `/World/env_0/scene`
+  - 此时场景几何体已经存在，可以基于它烘焙 NavMesh
+  - 之前在 `runner.reset()` 之前烘焙会失败：`Root prim '/World' not found`
+
+- **为什么虚拟人初始化必须在 NavMesh 烘焙之后？**
+  - 行为脚本中的导航相关初始化需要 `interface.get_navmesh()` 返回有效对象
+  - 如果 NavMesh 还没有烘焙，Agent 无法注册到 AgentManager
+  - 拆分成两个阶段：spawn（创建 USD prims）→ initialize（附加脚本和动画图）
+
+- **Timeline 启动时机的影响**：
+  - `runner.reset()` 内部会调用 `SimulationContext.reset()`，这会自动启动 timeline
+  - 虽然 timeline 已经启动，但行为脚本的执行有几帧延迟
+  - 我们利用这个延迟窗口，在脚本真正执行之前完成 NavMesh 烘焙和脚本附加
+
+**状态标志管理**：
+
+```python
+class EnvsetTaskRuntime:
+    _navmesh_ready = False    # NavMesh 是否已烘焙完成
+    _vh_spawned = False       # 虚拟人是否已 spawn
+    _pending_routes = {}      # 待注入的路由命令
+```
+
+- `_vh_spawned`：在 `_setup_virtual_characters()` 中设置，标记虚拟人 USD prims 已创建
+- `_navmesh_ready`：在 `_bake_navmesh_sync()` 成功后设置，标记 NavMesh 已就绪
+
+**调试日志关键点**：
+
+运行成功时，日志顺序应该是：
+```
+[EnvsetRuntime] Spawned 1 virtual humans (behaviors NOT yet initialized)
+[EnvsetStandalone] NavMesh baking completed successfully
+[EnvsetStandalone] Initializing virtual humans (attaching behaviors)...
+[EnvsetRuntime] Setting up character behaviors...
+[EnvsetRuntime] Applying anim graph from /World/Characters/Biped_Setup/CharacterAnimation/AnimationGraph
+[EnvsetRuntime] Virtual humans initialization completed
+```
+
+> 注意：目前未实现随机化或 spawn shuffle——按需求明确无需支持。
 
 ## 4. 物理仿真稳定性修复（2024-11）
 

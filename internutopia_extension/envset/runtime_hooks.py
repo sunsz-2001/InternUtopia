@@ -225,6 +225,7 @@ class EnvsetTaskRuntime:
 
     @classmethod
     def _setup_virtual_characters(cls, envset_cfg):
+        """只负责虚拟人物的 spawn（创建USD prim），不附加行为脚本和动画图"""
         if cls._vh_spawned:
             return
         vh_cfg = (envset_cfg.get("virtual_humans") or {}) if envset_cfg else {}
@@ -266,9 +267,33 @@ class EnvsetTaskRuntime:
         if spawned_any:
             # 立即应用碰撞体到spawned的虚拟人物
             cls._apply_colliders_to_spawned_characters(spawned_prims, envset_cfg)
-            cls._setup_character_behaviors()
-            cls._configure_arrival_guard(envset_cfg, vh_cfg)
             cls._vh_spawned = True
+            carb.log_info(f"[EnvsetRuntime] Spawned {len(spawned_prims)} virtual humans (behaviors NOT yet initialized)")
+
+    @classmethod
+    def initialize_virtual_humans(cls, envset_cfg):
+        """
+        在 NavMesh 烘焙完成后调用，负责给已 spawn 的虚拟人物附加行为脚本和动画图。
+        必须在 NavMesh ready 之后调用，否则 Agent 注册会失败。
+        """
+        if not cls._vh_spawned:
+            carb.log_warn("[EnvsetRuntime] No virtual humans spawned, skipping initialization")
+            return
+        
+        vh_cfg = (envset_cfg.get("virtual_humans") or {}) if envset_cfg else {}
+        if not vh_cfg:
+            carb.log_warn("[EnvsetRuntime] No virtual_humans config found")
+            return
+        
+        carb.log_info("[EnvsetRuntime] Initializing virtual humans (attaching behaviors and animation graphs)...")
+        
+        # 附加行为脚本和动画图
+        cls._setup_character_behaviors()
+        
+        # 配置 arrival guard
+        cls._configure_arrival_guard(envset_cfg, vh_cfg)
+        
+        carb.log_info("[EnvsetRuntime] Virtual humans initialization completed")
 
     @classmethod
     def _setup_virtual_routes(cls, envset_cfg):
