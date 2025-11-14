@@ -567,6 +567,7 @@ class EnvsetTaskRuntime:
 
         for attempt in range(max_attempts):
             if _dump_status():
+                EnvsetTaskRuntime._register_scripts_with_agent_manager(character_list, script_manager)
                 return
             if not app:
                 break
@@ -575,7 +576,42 @@ class EnvsetTaskRuntime:
             except Exception as exc:
                 print(f"[EnvsetRuntime][DEBUG] app.update() failed while waiting for scripts: {exc}")
                 break
-        _dump_status()
+        if _dump_status():
+            EnvsetTaskRuntime._register_scripts_with_agent_manager(character_list, script_manager)
+
+    @staticmethod
+    def _register_scripts_with_agent_manager(character_list, script_manager):
+        """Manually trigger character behavior initialization and AgentManager registration if needed."""
+        if not character_list:
+            return
+        try:
+            from internutopia_extension.envset.agent_manager import AgentManager
+        except Exception as exc:
+            print(f"[EnvsetRuntime][DEBUG] Cannot import AgentManager for manual registration: {exc}")
+            return
+        mgr = AgentManager.get_instance() if AgentManager.has_instance() else None
+
+        for prim in character_list:
+            prim_path = str(prim.GetPrimPath())
+            insts = (script_manager._prim_to_scripts or {}).get(prim_path)
+            if not insts:
+                continue
+            for _, inst in insts.items():
+                if not inst:
+                    continue
+                try:
+                    if hasattr(inst, "init_character"):
+                        print(f"[EnvsetRuntime][DEBUG] Calling init_character() on {inst}")
+                        inst.init_character()
+                except Exception as exc:
+                    print(f"[EnvsetRuntime][DEBUG] init_character failed for {inst}: {exc}")
+                if mgr and hasattr(inst, "get_agent_name"):
+                    try:
+                        agent_name = inst.get_agent_name()
+                        print(f"[EnvsetRuntime][DEBUG] Manually registering agent {agent_name} for prim {prim_path}")
+                        mgr.register_agent(agent_name, inst.prim_path)
+                    except Exception as exc:
+                        print(f"[EnvsetRuntime][DEBUG] register_agent failed for {inst}: {exc}")
 
     @classmethod
     def _configure_arrival_guard(cls, envset_cfg, vh_cfg):

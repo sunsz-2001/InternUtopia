@@ -98,13 +98,19 @@ class AgentManager:
         clean the registry when the simulation stops
         """
         # subscription to agent register event
-        self._agent_registered_sub = carb.eventdispatcher.get_eventdispatcher().observe_event(
-            event_name=AgentEvent.AgentRegistered, on_event=self.on_agent_registered,
+        dispatcher = carb.eventdispatcher.get_eventdispatcher()
+        print("[AgentManager][DEBUG] Registering AgentEvent.AgentRegistered observer...")
+        self._agent_registered_sub = dispatcher.observe_event(
+            event_name=AgentEvent.AgentRegistered,
+            on_event=self.on_agent_registered,
             observer_name="isaacsim/replicator/agent/ON_AGENT_REGISTERED"
         )
+        print(f"[AgentManager][DEBUG] AgentRegistered observer handle: {self._agent_registered_sub}")
         # subscription to metadata update event
-        self._metadata_updated_sub = carb.eventdispatcher.get_eventdispatcher().observe_event(
-            event_name=AgentEvent.MetadataUpdateEvent, on_event=self.on_metadata_updated,
+        print("[AgentManager][DEBUG] Registering AgentEvent.MetadataUpdateEvent observer...")
+        self._metadata_updated_sub = dispatcher.observe_event(
+            event_name=AgentEvent.MetadataUpdateEvent,
+            on_event=self.on_metadata_updated,
             observer_name="isaacsim/replicator/agent/ON_METADATA_UPDATED"
         )
 
