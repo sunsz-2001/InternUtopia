@@ -26,10 +26,15 @@ from omni.metropolis.utils.config_file.util import ConfigFileError
 try:
     from omni.isaac.matterport.scripts import import_matterport_asset
     MATTERPORT_AVAILABLE = True
-except ImportError:
+    carb.log_info("✓ omni.isaac.matterport extension is available")
+except ImportError as exc:
     MATTERPORT_AVAILABLE = False
     import_matterport_asset = None
-    carb.log_warn("omni.isaac.matterport is not available. Matterport scene import will be disabled.")
+    carb.log_warn(
+        f"⚠ omni.isaac.matterport is not available: {exc}\n"
+        "  → Matterport (.glb) scene import will be disabled.\n"
+        "  → Use USD scenes (.usd, .usda, .usdc) or convert Matterport to USD format."
+    )
 
 # Removed redundant direct imports; collision/ground handled in importer
 from internutopia_extension.data_generation.data_generation import DataGeneration
@@ -1218,8 +1223,20 @@ class SimulationManager:
         """
         # Check if Matterport is available
         if not MATTERPORT_AVAILABLE:
-            carb.log_error("Cannot import Matterport scene: omni.isaac.matterport extension is not available in this Isaac Sim version.")
-            return
+            carb.log_error(
+                "❌ Cannot import Matterport scene: omni.isaac.matterport extension is not available.\n"
+                "   Solutions:\n"
+                "   1. Check if your Isaac Sim version includes omni.isaac.matterport\n"
+                "   2. Add extension path via --extension-path flag\n"
+                "   3. Convert Matterport scenes to USD format and use 'usd_path' instead\n"
+                "   4. Use GRScenes or other USD-based scenes\n"
+                f"   Current scene: {import_path}"
+            )
+            # Raise exception to prevent silent failure
+            raise RuntimeError(
+                "Matterport extension not available. Cannot load scene. "
+                "Please check extension availability or use USD scenes instead."
+            )
 
         try:
             # Step 1: Import Matterport asset (honor ground plane config directly)

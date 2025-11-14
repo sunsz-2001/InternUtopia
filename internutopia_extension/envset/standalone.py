@@ -360,8 +360,15 @@ class EnvsetStandaloneRunner:
             try:
                 enable_extension("omni.isaac.matterport")
                 carb.log_info("[EnvsetStandalone] Matterport extension enabled")
-            except Exception:
-                carb.log_warn("[EnvsetStandalone] Matterport extension not available - Matterport scene import will be disabled")
+            except Exception as exc:
+                carb.log_warn(
+                    f"[EnvsetStandalone] Matterport extension not available: {exc}\n"
+                    "  Possible reasons:\n"
+                    "  1. Isaac Sim version does not include omni.isaac.matterport\n"
+                    "  2. Extension path not in ISAAC_EXTRA_EXT_PATH\n"
+                    "  3. Extension files missing or corrupted\n"
+                    "  → Matterport scene import will be disabled. Use USD scenes instead."
+                )
 
             # ★★ 关键修复：在启用所有 AnimGraph/People 扩展后，重新创建干净的 stage ★★
             # 避免"先有 stage → 后 enable anim.graph"导致插件错过初始化的已知 bug
