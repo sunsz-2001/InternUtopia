@@ -369,6 +369,17 @@ class EnvsetStandaloneRunner:
             except Exception:
                 carb.log_warn("[EnvsetStandalone] Matterport extension not available - Matterport scene import will be disabled")
 
+            # ★★ 关键修复：在启用所有 AnimGraph/People 扩展后，重新创建干净的 stage ★★
+            # 避免"先有 stage → 后 enable anim.graph"导致插件错过初始化的已知 bug
+            # 参考：https://forums.developer.nvidia.com/t/isaac-sim-people-simulation-broken-in-4-1-0/301378
+            try:
+                import omni.usd  # type: ignore
+                usd_ctx = omni.usd.get_context()
+                usd_ctx.new_stage()
+                carb.log_info("[EnvsetStandalone] Re-created stage after enabling AnimGraph/People extensions (bug workaround)")
+            except Exception as e:
+                carb.log_warn(f"[EnvsetStandalone] Failed to recreate stage after enabling AnimGraph: {e}")
+
             carb.log_info("[EnvsetStandalone] Required extensions enabled")
         except Exception as exc:
             carb.log_warn(f"[EnvsetStandalone] Failed to enable some extensions: {exc}")
