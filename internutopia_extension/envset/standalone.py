@@ -338,7 +338,7 @@ class EnvsetStandaloneRunner:
             enable_extension("omni.usd")
             enable_extension("omni.anim.retarget.core")
             enable_extension("omni.kit.scripting")
-            enable_extension("omni.kit.mesh.raycast")  # Required for raycast functionality
+            enable_extension("omni.kit.mesh.raycast")
             enable_extension("omni.services.pip_archive")
             enable_extension("isaacsim.sensors.camera")
             enable_extension("isaacsim.sensors.physics")
@@ -346,15 +346,21 @@ class EnvsetStandaloneRunner:
             enable_extension("isaacsim.storage.native")
             enable_extension("isaacsim.core.utils")
             enable_extension("omni.metropolis.utils")
+
+            # ★★ 关键：完整的 Anim Graph 套件 ★★
             enable_extension("omni.anim.graph.core")
+            enable_extension("omni.anim.graph.schema")   # 你现在少的就是这个
+            # 可选：如果后面要用 UI 编辑图，可以顺便开
+            # enable_extension("omni.anim.graph.ui")
+
             enable_extension("omni.anim.navigation.schema")
             enable_extension("omni.anim.navigation.core")
             enable_extension("omni.anim.navigation.meshtools")
+
             enable_extension("omni.anim.people")
             enable_extension("isaacsim.anim.robot")
             enable_extension("omni.replicator.core")
             enable_extension("isaacsim.replicator.incident")
-            enable_extension("omni.physxcommands")
 
             # Optional: Matterport (may not be available in all Isaac Sim versions)
             try:
