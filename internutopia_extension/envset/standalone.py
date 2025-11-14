@@ -325,22 +325,16 @@ class EnvsetStandaloneRunner:
     # ---------- internal helpers ----------
 
     def _prepare_runtime_settings(self):
-        """在 SimulationApp 已创建后，启用必须的扩展并配置 envset 运行时。"""
+        # Import Isaac Sim modules here, after runner initialization
         import carb  # type: ignore
         import carb.settings  # type: ignore
 
+        # Enable required extensions before importing envset modules
         print("[EnvsetStandalone] Enabling required extensions...")
-
-        # 兼容 Isaac Sim 4.x / 5.x 的 enable_extension API
         try:
-            # Isaac Sim 5.x 推荐写法
-            from isaacsim.core.utils.extensions import enable_extension  # type: ignore
-        except Exception:
-            # 旧版本回退
             from omni.isaac.core.utils.extensions import enable_extension  # type: ignore
 
-        try:
-            # -------- Core envset 依赖（基本和 extension.toml 一致）--------
+            # Core envset dependencies (based on extension.toml dependencies)
             enable_extension("omni.usd")
             enable_extension("omni.anim.retarget.core")
             enable_extension("omni.kit.scripting")
@@ -353,51 +347,27 @@ class EnvsetStandaloneRunner:
             enable_extension("isaacsim.core.utils")
             enable_extension("omni.metropolis.utils")
 
-            # -------- AnimGraph / Navigation / People 全家桶（顺序尽量集中）--------
-            # ★ 这些必须在真正使用的 stage 创建之前启用，否则会触发
-            #    getCharacter - is not a SkelRoot / animationGraph not found 之类的 bug
+            # ★★ 关键：完整的 Anim Graph 套件 ★★
             enable_extension("omni.anim.graph.core")
-            enable_extension("omni.anim.graph.schema")      # 你之前缺的就是这个
+            enable_extension("omni.anim.graph.schema")   # 你现在少的就是这个
+            # 可选：如果后面要用 UI 编辑图，可以顺便开
+            # enable_extension("omni.anim.graph.ui")
+
             enable_extension("omni.anim.navigation.schema")
             enable_extension("omni.anim.navigation.core")
             enable_extension("omni.anim.navigation.meshtools")
+
             enable_extension("omni.anim.people")
             enable_extension("isaacsim.anim.robot")
-
-            # -------- 其它依赖扩展 --------
             enable_extension("omni.replicator.core")
             enable_extension("isaacsim.replicator.incident")
 
-            # 可选：omni.physxcommands 在 5.0 pip 版里默认是没有的，包一层 try 免得 log 里天天报 not found
-            try:
-                enable_extension("omni.physxcommands")
-            except Exception:
-                carb.log_warn("[EnvsetStandalone] omni.physxcommands not available, skipping")
-
-            # 可选：Matterport（有就启用，没就忽略）
+            # Optional: Matterport (may not be available in all Isaac Sim versions)
             try:
                 enable_extension("omni.isaac.matterport")
                 carb.log_info("[EnvsetStandalone] Matterport extension enabled")
             except Exception:
-                carb.log_warn(
-                    "[EnvsetStandalone] Matterport extension not available - "
-                    "Matterport scene import will be disabled"
-                )
-
-            # -------- 关键：在启用完 AnimGraph/People 之后，立刻重建 stage --------
-            # 避免“先有 stage 再 enable anim.graph/people”导致的 getCharacter / animationGraph bug
-            try:
-                import omni.usd  # type: ignore
-
-                usd_ctx = omni.usd.get_context()
-                usd_ctx.new_stage()
-                carb.log_info(
-                    "[EnvsetStandalone] Re-created USD stage after enabling AnimGraph/People extensions"
-                )
-            except Exception as e:
-                carb.log_warn(
-                    f"[EnvsetStandalone] Failed to recreate stage after enabling AnimGraph/People: {e}"
-                )
+                carb.log_warn("[EnvsetStandalone] Matterport extension not available - Matterport scene import will be disabled")
 
             carb.log_info("[EnvsetStandalone] Required extensions enabled")
         except Exception as exc:
@@ -405,7 +375,7 @@ class EnvsetStandaloneRunner:
         finally:
             self._log_extension_status()
 
-        # -------- 这里开始才安全导入依赖这些扩展的 envset 模块 --------
+        # Now safe to import envset modules that depend on these extensions
         from internutopia_extension.envset.settings import AssetPaths, Infos
         from internutopia_extension.envset.simulation import (
             ENVSET_AUTOSTART_SETTING,
@@ -417,15 +387,11 @@ class EnvsetStandaloneRunner:
         settings_iface.set(ENVSET_PATH_SETTING, str(self._envset_path))
         settings_iface.set(ENVSET_AUTOSTART_SETTING, False)
         settings_iface.set(ENVSET_SCENARIO_SETTING, self._bundle.scenario_id)
-        settings_iface.set(
-            AssetPaths.USE_ISAAC_SIM_ASSET_ROOT_SETTING,
-            not self._args.skip_isaac_assets,
-        )
+        settings_iface.set(AssetPaths.USE_ISAAC_SIM_ASSET_ROOT_SETTING, not self._args.skip_isaac_assets)
 
         Infos.ext_version = str(self._args.label)
         Infos.ext_path = str(Path(__file__).resolve().parent)
 
-        # -------- Warp 初始化（失败就打个 warning，不中断）--------
         try:
             import warp  # type: ignore
 
@@ -433,13 +399,11 @@ class EnvsetStandaloneRunner:
         except Exception as exc:
             carb.log_warn(f"[EnvsetStandalone] Warp init failed: {exc}")
 
-        # -------- Isaac Assets 路径缓存（可选）--------
         if not self._args.skip_isaac_assets:
             try:
                 asyncio.run(AssetPaths.cache_paths_async())
             except Exception as exc:
                 carb.log_warn(f"[EnvsetStandalone] Failed to cache asset root: {exc}")
-
 
     def _initialize_simulation_app(self, config: Config):
         from isaacsim import SimulationApp  # type: ignore

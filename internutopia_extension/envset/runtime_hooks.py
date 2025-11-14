@@ -472,6 +472,147 @@ class EnvsetTaskRuntime:
             pass
 
     @classmethod
+    def _wait_for_animgraph_sync(cls, character_list, strategy: str = "smart"):
+        """
+        等待 AnimGraph 插件完全同步 USD 层面的 API 应用。
+
+        Args:
+            character_list: 已应用 AnimationGraphAPI 的 SkelRoot prim 列表
+            strategy: 等待策略
+                - "simple": 固定等待 N 次 update（快速验证）
+                - "smart": 轮询检查 AnimGraph 插件状态（更可靠）
+        """
+        try:
+            import omni.kit.app  # type: ignore
+            app = omni.kit.app.get_app()
+        except Exception as exc:
+            carb.log_warn(f"[EnvsetRuntime] Cannot get app instance for AnimGraph sync: {exc}")
+            return
+
+        if strategy == "simple":
+            cls._wait_for_animgraph_simple(character_list, app)
+        else:
+            cls._wait_for_animgraph_smart(character_list, app)
+
+    @staticmethod
+    def _wait_for_animgraph_simple(character_list, app, update_count: int = 18):
+        """
+        简单策略：固定等待 N 次 app.update()，让 AnimGraph 插件有时间同步。
+
+        这个策略适合快速验证问题是否是时序 race。
+        update_count=18 基于观察：
+        - 原来 _await_script_manager_instances 只等 6 次
+        - 日志显示 AnimGraph apply 到 init_character 约 500ms
+        - 18 次 update 约 600-900ms（取决于渲染负载）
+        """
+        carb.log_info(
+            f"[EnvsetRuntime] Waiting for AnimGraph sync (simple strategy: {update_count} updates)..."
+        )
+
+        for i in range(update_count):
+            try:
+                app.update()
+                # 每 6 次输出一次进度，避免刷屏
+                if (i + 1) % 6 == 0:
+                    carb.log_info(
+                        f"[EnvsetRuntime] AnimGraph sync progress: {i + 1}/{update_count} updates"
+                    )
+            except Exception as exc:
+                carb.log_warn(f"[EnvsetRuntime] app.update() failed during AnimGraph sync: {exc}")
+                break
+
+        carb.log_info(
+            f"[EnvsetRuntime] AnimGraph sync wait completed ({update_count} updates)"
+        )
+
+    @staticmethod
+    def _wait_for_animgraph_smart(character_list, app, max_attempts: int = 30):
+        """
+        智能策略：轮询检查 AnimGraph 插件是否真正识别了 SkelRoot。
+
+        通过检查以下条件判断 AnimGraph 是否就绪：
+        1. omni.anim.graph.core 的 getCharacter() 能返回非空对象
+        2. SkelRoot 上的 animationGraph 关系目标存在
+
+        Args:
+            max_attempts: 最大轮询次数（每次间隔 1 个 update）
+        """
+        carb.log_info(
+            f"[EnvsetRuntime] Waiting for AnimGraph sync (smart strategy: polling readiness)..."
+        )
+
+        # 尝试获取 AnimGraph 接口
+        anim_graph_interface = None
+        try:
+            import omni.anim.graph.core as ag  # type: ignore
+            anim_graph_interface = ag.get_interface()
+        except Exception as exc:
+            carb.log_warn(
+                f"[EnvsetRuntime] Cannot import omni.anim.graph.core for smart polling: {exc}. "
+                f"Falling back to simple wait."
+            )
+            # Fallback 到简单策略
+            EnvsetTaskRuntime._wait_for_animgraph_simple(character_list, app)
+            return
+
+        if not anim_graph_interface:
+            carb.log_warn(
+                "[EnvsetRuntime] AnimGraph interface is None, falling back to simple wait."
+            )
+            EnvsetTaskRuntime._wait_for_animgraph_simple(character_list, app)
+            return
+
+        # 轮询检查每个角色是否被 AnimGraph 识别
+        all_ready = False
+        for attempt in range(max_attempts):
+            app.update()
+
+            ready_count = 0
+            pending_chars = []
+
+            for prim in character_list:
+                prim_path = str(prim.GetPrimPath())
+
+                # 方法1：检查 getCharacter 是否返回有效对象
+                try:
+                    character_obj = anim_graph_interface.get_character(prim_path)
+                    if character_obj:
+                        ready_count += 1
+                    else:
+                        pending_chars.append(prim_path)
+                except Exception:
+                    # get_character 可能抛异常，说明还未就绪
+                    pending_chars.append(prim_path)
+
+            # 所有角色都 ready
+            if ready_count == len(character_list):
+                all_ready = True
+                carb.log_info(
+                    f"[EnvsetRuntime] All {len(character_list)} characters recognized by AnimGraph "
+                    f"after {attempt + 1} updates"
+                )
+                break
+
+            # 每 10 次输出一次状态
+            if (attempt + 1) % 10 == 0:
+                carb.log_info(
+                    f"[EnvsetRuntime] AnimGraph sync: {ready_count}/{len(character_list)} ready "
+                    f"({attempt + 1}/{max_attempts} updates). Pending: {pending_chars[:2]}..."
+                )
+
+        if not all_ready:
+            carb.log_warn(
+                f"[EnvsetRuntime] AnimGraph sync timeout after {max_attempts} updates. "
+                f"{ready_count}/{len(character_list)} characters ready. "
+                f"Continuing anyway, but init_character() may fail for some characters."
+            )
+
+        # 额外等待 3 帧，让 Fabric 绑定等后续操作完成
+        carb.log_info("[EnvsetRuntime] AnimGraph sync confirmed, waiting 3 more frames for Fabric bindings...")
+        for _ in range(3):
+            app.update()
+
+    @classmethod
     def _setup_character_behaviors(cls):
         carb.log_info("[EnvsetRuntime] Setting up character behaviors...")
         biped = CharacterUtil.load_default_biped_to_stage()
@@ -505,6 +646,17 @@ class EnvsetTaskRuntime:
         if anim_graph:
             carb.log_info(f"[EnvsetRuntime] Applying anim graph from {anim_graph.GetPath()}")
             CharacterUtil.setup_animation_graph_to_character(character_list, anim_graph)
+
+            # ★★ 关键修复：等待 AnimGraph 插件完全同步 USD schema 变更 ★★
+            # ApplyAnimationGraphAPICommand 在 USD 层立即完成，但 omni.anim.graph.core 插件
+            # 需要几帧才能完成内部状态同步（CharacterManager、Fabric 绑定等）
+            #
+            # 可以通过环境变量 ANIMGRAPH_SYNC_STRATEGY 控制策略：
+            # - "simple": 固定等待 18 次 update（默认，快速验证用）
+            # - "smart": 轮询检查 AnimGraph 状态（更可靠，但稍慢）
+            import os
+            sync_strategy = os.environ.get("ANIMGRAPH_SYNC_STRATEGY", "simple")
+            cls._wait_for_animgraph_sync(character_list, strategy=sync_strategy)
         else:
             carb.log_error("[EnvsetRuntime] Animation graph still missing after retry; characters may not register with AgentManager.")
 
