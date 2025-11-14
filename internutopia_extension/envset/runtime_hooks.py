@@ -510,6 +510,33 @@ class EnvsetTaskRuntime:
         script_path = BehaviorScriptPaths.behavior_script_path()
         carb.log_info(f"[EnvsetRuntime] Attaching behavior script: {script_path}")
         CharacterUtil.setup_python_scripts_to_character(character_list, script_path)
+        try:
+            from omni.kit.scripting.scripts.script_manager import ScriptManager  # type: ignore
+            scripts_manager = ScriptManager.get_instance()
+            script_map = scripts_manager._prim_to_scripts if scripts_manager else {}
+        except Exception as exc:  # pragma: no cover - diagnostic only
+            script_map = {}
+            carb.log_warn(f"[EnvsetRuntime] ScriptManager diagnostics unavailable: {exc}")
+        for prim in character_list:
+            prim_path = str(prim.GetPrimPath())
+            registered = False
+            if script_map and prim_path in script_map:
+                for _, inst in script_map[prim_path].items():
+                    if inst:
+                        try:
+                            inst_name = inst.get_agent_name() if hasattr(inst, "get_agent_name") else None
+                        except Exception:
+                            inst_name = None
+                        print(
+                            f"[EnvsetRuntime][DEBUG] Script instance detected for {prim_path}: "
+                            f"{inst} (agent_name={inst_name})"
+                        )
+                        registered = True
+            if not registered:
+                print(
+                    f"[EnvsetRuntime][DEBUG] No script instance registered yet for {prim_path}; "
+                    "behavior script might not have initialized before AgentManager registration."
+                )
         
         SemanticsUtils.add_update_prim_metrosim_semantics(character_list, type_value="class", name="character")
 

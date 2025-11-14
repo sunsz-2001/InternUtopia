@@ -205,6 +205,11 @@ class AgentManager:
         """Register the agent to the manager by creating mapping for agent name to its BehaviorScript instance"""
         # get the BehaviorScript inst
         agent_inst = SimulationUtil.get_agent_script_instance_by_path(agent_prim_path)
+        if agent_inst is None:
+            print(
+                f"[AgentManager][DEBUG] register_agent called but no BehaviorScript instance for {agent_name} "
+                f"at {agent_prim_path}. Script initialization may still be pending."
+            )
         # add the agent inst to the dict
         self._agent_name_to_script_inst[agent_name] = agent_inst
 
