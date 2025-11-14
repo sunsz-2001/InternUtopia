@@ -268,7 +268,16 @@ class EnvsetTaskRuntime:
             # 立即应用碰撞体到spawned的虚拟人物
             cls._apply_colliders_to_spawned_characters(spawned_prims, envset_cfg)
             cls._vh_spawned = True
-            carb.log_info(f"[EnvsetRuntime] Spawned {len(spawned_prims)} virtual humans (behaviors NOT yet initialized)")
+            debug_info = [
+                f"name={prim.GetName()}, path={prim.GetPrimPath()}"
+                for prim in spawned_prims
+                if prim and prim.IsValid()
+            ]
+            print(
+                "[EnvsetRuntime] Spawned %d virtual humans (behaviors NOT yet initialized): %s",
+                len(spawned_prims),
+                "; ".join(debug_info),
+            )
 
     @classmethod
     def initialize_virtual_humans(cls, envset_cfg):
@@ -277,7 +286,10 @@ class EnvsetTaskRuntime:
         必须在 NavMesh ready 之后调用，否则 Agent 注册会失败。
         """
         if not cls._vh_spawned:
-            carb.log_warn("[EnvsetRuntime] No virtual humans spawned, skipping initialization")
+            print("[EnvsetRuntime] No virtual humans spawned, skipping initialization")
+            return
+        if not cls._navmesh_ready:
+            print("[EnvsetRuntime] NavMesh not ready, skipping virtual human initialization")
             return
         
         vh_cfg = (envset_cfg.get("virtual_humans") or {}) if envset_cfg else {}
@@ -285,7 +297,10 @@ class EnvsetTaskRuntime:
             carb.log_warn("[EnvsetRuntime] No virtual_humans config found")
             return
         
-        carb.log_info("[EnvsetRuntime] Initializing virtual humans (attaching behaviors and animation graphs)...")
+        print(
+            "[EnvsetRuntime] Initializing virtual humans (attaching behaviors and animation graphs)... scenario=%s",
+            envset_cfg.get("id"),
+        )
         
         # 附加行为脚本和动画图
         cls._setup_character_behaviors()
@@ -322,13 +337,20 @@ class EnvsetTaskRuntime:
             on_event=cls._on_agent_registered,
             observer_name="internutopia/envset/runtime/routes",
         )
+        print("[EnvsetRuntime] Subscribed to AgentEvent.AgentRegistered for route injection")
 
     @classmethod
     def _on_agent_registered(cls, event):
         payload = getattr(event, "payload", None) or {}
         agent_name = payload.get("agent_name")
         if not agent_name:
+            print("[EnvsetRuntime] AgentRegistered event without agent_name: %s", payload)
             return
+        print(
+            "[EnvsetRuntime] AgentRegistered event received for '%s' (pending routes: %s)",
+            agent_name,
+            list(cls._pending_routes.keys()),
+        )
         cls._inject_route(agent_name)
 
     @classmethod
@@ -340,12 +362,15 @@ class EnvsetTaskRuntime:
     def _inject_route(cls, agent_name: str):
         commands = cls._pending_routes.get(agent_name)
         if not commands:
+            print(f"[EnvsetRuntime] No pending route for {agent_name} when trying to inject")
             return
         mgr = AgentManager.get_instance()
         if not mgr.agent_registered(agent_name):
+            print(f"[EnvsetRuntime] Agent '%s' not registered yet when injecting route", agent_name)
             return
         mgr.inject_command(agent_name, commands, force_inject=True, instant=True)
         cls._pending_routes.pop(agent_name, None)
+        print(f"[EnvsetRuntime] Injected route to agent '{agent_name}': {commands}")
 
     # --------------------- helpers ---------------------
 
@@ -456,7 +481,8 @@ class EnvsetTaskRuntime:
             carb.log_info(f"[EnvsetRuntime] Default biped prim: {biped.GetPath()}")
 
         character_list = CharacterUtil.get_characters_in_stage()
-        carb.log_info(f"[EnvsetRuntime] Characters detected in stage: {len(character_list)}")
+        character_paths = [str(prim.GetPrimPath()) for prim in character_list]
+        print(f"[EnvsetRuntime] Characters detected in stage: {len(character_list)} -> {character_paths}")
         if not character_list:
             return
 

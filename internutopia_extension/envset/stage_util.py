@@ -794,6 +794,13 @@ class CharacterUtil:
         omni.kit.commands.execute(
             "ApplyAnimationGraphAPICommand", paths=paths, animation_graph_path=Sdf.Path(anim_graph_path)
         )
+        for prim in character_skelroot_list:
+            attr = prim.GetAttribute("omni:animGraph:graphPath")
+            carb.log_info(
+                "[CharacterUtil] AnimGraph applied to %s -> %s",
+                prim.GetPrimPath(),
+                attr.Get() if attr else "None",
+            )
 
     def setup_python_scripts_to_character(character_skelroot_list: list, python_script_path):
         """
@@ -805,7 +812,13 @@ class CharacterUtil:
         omni.kit.commands.execute("ApplyScriptingAPICommand", paths=paths)
         for prim in character_skelroot_list:
             attr = prim.GetAttribute("omni:scripting:scripts")
-            attr.Set([r"{}".format(python_script_path)])
+            scripts_value = [r"{}".format(python_script_path)]
+            attr.Set(scripts_value)
+            carb.log_info(
+                "[CharacterUtil] Scripts applied to %s -> %s",
+                prim.GetPrimPath(),
+                scripts_value,
+            )
 
     # Delete one character prim bt the given name
     def delete_character_prim(char_name):

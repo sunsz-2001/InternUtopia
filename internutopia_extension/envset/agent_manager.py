@@ -180,6 +180,9 @@ class AgentManager:
         # check whether agent name is correct
         agent_name = agent_info["agent_name"]
         agent_prim_path = agent_info["prim_path"]
+        print(
+            f"[AgentManager] on_agent_registered event: agent={agent_name}, prim={agent_prim_path}"
+        )
         self.register_agent(agent_name, agent_prim_path)
         carb.log_info(f"{agent_name} is registered with prim path {agent_prim_path}")
 

@@ -510,7 +510,7 @@ class EnvsetStandaloneRunner:
 
         SimulatorRunner.setup_isaacsim = _reuse_setup
         try:
-            runner = SimulatorRunner(config=config, task_config_manager=task_manager)
+        runner = SimulatorRunner(config=config, task_config_manager=task_manager)
         finally:
             SimulatorRunner.setup_isaacsim = original_setup
 
