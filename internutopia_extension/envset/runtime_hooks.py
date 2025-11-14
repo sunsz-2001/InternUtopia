@@ -481,6 +481,7 @@ class EnvsetTaskRuntime:
             carb.log_info(f"[EnvsetRuntime] Default biped prim: {biped.GetPath()}")
 
         character_list = CharacterUtil.get_characters_in_stage()
+        character_roots = CharacterUtil.get_characters_root_in_stage()
         character_paths = [str(prim.GetPrimPath()) for prim in character_list]
         print(f"[EnvsetRuntime] Characters detected in stage: {len(character_list)} -> {character_paths}")
         if not character_list:
@@ -511,7 +512,7 @@ class EnvsetTaskRuntime:
         carb.log_info(f"[EnvsetRuntime] Attaching behavior script: {script_path}")
         CharacterUtil.setup_python_scripts_to_character(character_list, script_path)
         try:
-            CharacterUtil.register_characters_with_world(character_list)
+            CharacterUtil.register_characters_with_world(character_roots or character_list)
         except Exception as exc:
             print(f"[EnvsetRuntime][DEBUG] Failed to register characters with World scene: {exc}")
         cls._await_script_manager_instances(character_list)

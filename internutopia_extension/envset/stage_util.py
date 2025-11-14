@@ -839,12 +839,12 @@ class CharacterUtil:
             attr.Set(scripts_value)
             print(f"[CharacterUtil] Scripts applied to {prim.GetPrimPath()} -> {scripts_value}")
 
-    def register_characters_with_world(character_skelroot_list: list):
+    def register_characters_with_world(character_prim_list: list):
         """
         Ensure spawned characters are tracked by the Isaac World scene so behavior scripts
         can query active characters (required for character_behavior.py init routines).
         """
-        if not character_skelroot_list:
+        if not character_prim_list:
             return
         if World is None or XFormPrim is None:
             print("[CharacterUtil] Isaac World API unavailable; skip character scene registration.")
@@ -859,10 +859,26 @@ class CharacterUtil:
             print("[CharacterUtil] World scene unavailable; cannot register characters.")
             return
 
-        for prim in character_skelroot_list:
+        characters_root = PrimPaths.characters_parent_path()
+
+        def _resolve_root(target_prim):
+            prim = target_prim
+            while prim and prim.GetPath() != Sdf.Path(characters_root):
+                parent = prim.GetParent()
+                if parent is None or parent == prim:
+                    break
+                if parent.GetPath() == Sdf.Path(characters_root):
+                    return prim
+                prim = parent
+            return target_prim
+
+        for prim in character_prim_list:
             if not prim or not prim.IsValid():
                 continue
-            prim_path = str(prim.GetPrimPath())
+            root_prim = _resolve_root(prim)
+            if not root_prim or not root_prim.IsValid():
+                continue
+            prim_path = str(root_prim.GetPrimPath())
             safe_name = prim_path.replace("/", "_").lstrip("_") + "_xform"
             try:
                 if scene.object_exists(safe_name):
@@ -873,7 +889,7 @@ class CharacterUtil:
             try:
                 xform = XFormPrim(prim_path, name=safe_name)
                 scene.add(xform)
-                print(f"[CharacterUtil] Registered character prim {prim_path} with World scene as {safe_name}")
+                print(f"[CharacterUtil] Registered character root {prim_path} with World scene as {safe_name}")
             except Exception as exc:
                 print(f"[CharacterUtil] Failed to register {prim_path} with World scene: {exc}")
 
