@@ -610,6 +610,10 @@ class EnvsetTaskRuntime:
                         agent_name = inst.get_agent_name()
                         print(f"[EnvsetRuntime][DEBUG] Manually registering agent {agent_name} for prim {prim_path}")
                         mgr.register_agent(agent_name, inst.prim_path)
+                        try:
+                            EnvsetTaskRuntime._inject_route(agent_name)
+                        except Exception as exc:
+                            print(f"[EnvsetRuntime][DEBUG] Route injection failed for {agent_name}: {exc}")
                     except Exception as exc:
                         print(f"[EnvsetRuntime][DEBUG] register_agent failed for {inst}: {exc}")
 
