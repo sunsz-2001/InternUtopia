@@ -796,10 +796,8 @@ class CharacterUtil:
         )
         for prim in character_skelroot_list:
             attr = prim.GetAttribute("omni:animGraph:graphPath")
-            carb.log_info(
-                "[CharacterUtil] AnimGraph applied to %s -> %s",
-                prim.GetPrimPath(),
-                attr.Get() if attr else "None",
+            print(
+                f"[CharacterUtil] AnimGraph applied to {prim.GetPrimPath()} -> {attr.Get() if attr else "None"}"
             )
 
     def setup_python_scripts_to_character(character_skelroot_list: list, python_script_path):
