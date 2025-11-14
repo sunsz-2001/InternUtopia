@@ -812,11 +812,7 @@ class CharacterUtil:
             attr = prim.GetAttribute("omni:scripting:scripts")
             scripts_value = [r"{}".format(python_script_path)]
             attr.Set(scripts_value)
-            carb.log_info(
-                "[CharacterUtil] Scripts applied to %s -> %s",
-                prim.GetPrimPath(),
-                scripts_value,
-            )
+            print(f"[CharacterUtil] Scripts applied to {prim.GetPrimPath()} -> {scripts_value}")
 
     # Delete one character prim bt the given name
     def delete_character_prim(char_name):
