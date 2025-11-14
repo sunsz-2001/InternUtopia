@@ -786,7 +786,15 @@ class CharacterUtil:
             return
 
         anim_graph_path = anim_graph_prim.GetPrimPath()
-        paths = [Sdf.Path(prim.GetPrimPath()) for prim in character_skelroot_list]
+        paths = []
+        for prim in character_skelroot_list:
+            if prim.GetTypeName() != "SkelRoot":
+                carb.log_error(
+                    "[CharacterUtil] Applying anim graph to unexpected prim type "
+                    f"{prim.GetTypeName()} ({prim.GetPrimPath()}); the target should be a SkelRoot "
+                    "or its parent Xform/Skeleton."
+                )
+            paths.append(Sdf.Path(prim.GetPrimPath()))
         
         print(f"[CharacterUtil] Applying AnimationGraph to {len(paths)} characters")
         
@@ -796,9 +804,19 @@ class CharacterUtil:
         )
         for prim in character_skelroot_list:
             attr = prim.GetAttribute("omni:animGraph:graphPath")
+            attr_value = None
+            if attr and attr.IsValid():
+                attr_value = attr.Get()
             print(
-                f"[CharacterUtil] AnimGraph applied to {prim.GetPrimPath()} -> {attr.Get() if attr else 'None'}"
+                f"[CharacterUtil] AnimGraph applied to {prim.GetPrimPath()} -> "
+                f"{attr_value if attr_value else 'None'}"
             )
+            if not attr_value:
+                raise RuntimeError(
+                    "[CharacterUtil] Failed to attach animation graph; "
+                    f"'omni:animGraph:graphPath' is {attr_value!r} for {prim.GetPrimPath()} "
+                    "after ApplyAnimationGraphAPICommand."
+                )
 
     def setup_python_scripts_to_character(character_skelroot_list: list, python_script_path):
         """
