@@ -512,7 +512,7 @@ class EnvsetTaskRuntime:
         carb.log_info(f"[EnvsetRuntime] Attaching behavior script: {script_path}")
         CharacterUtil.setup_python_scripts_to_character(character_list, script_path)
         try:
-            CharacterUtil.register_characters_with_world(character_roots or character_list)
+            CharacterUtil.register_characters_with_world(character_roots, character_list)
         except Exception as exc:
             print(f"[EnvsetRuntime][DEBUG] Failed to register characters with World scene: {exc}")
         cls._await_script_manager_instances(character_list)

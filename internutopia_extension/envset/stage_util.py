@@ -839,12 +839,12 @@ class CharacterUtil:
             attr.Set(scripts_value)
             print(f"[CharacterUtil] Scripts applied to {prim.GetPrimPath()} -> {scripts_value}")
 
-    def register_characters_with_world(character_prim_list: list):
+    def register_characters_with_world(character_root_list: list, skelroot_list: list | None = None):
         """
         Ensure spawned characters are tracked by the Isaac World scene so behavior scripts
         can query active characters (required for character_behavior.py init routines).
         """
-        if not character_prim_list:
+        if not character_root_list and not skelroot_list:
             return
         if World is None or XFormPrim is None:
             print("[CharacterUtil] Isaac World API unavailable; skip character scene registration.")
@@ -859,37 +859,24 @@ class CharacterUtil:
             print("[CharacterUtil] World scene unavailable; cannot register characters.")
             return
 
-        characters_root = PrimPaths.characters_parent_path()
+        targets = []
+        if character_root_list:
+            targets.extend([prim for prim in character_root_list if prim and prim.IsValid()])
+        if skelroot_list:
+            targets.extend([prim for prim in skelroot_list if prim and prim.IsValid()])
 
-        def _resolve_root(target_prim):
-            prim = target_prim
-            while prim and prim.GetPath() != Sdf.Path(characters_root):
-                parent = prim.GetParent()
-                if parent is None or parent == prim:
-                    break
-                if parent.GetPath() == Sdf.Path(characters_root):
-                    return prim
-                prim = parent
-            return target_prim
-
-        for prim in character_prim_list:
-            if not prim or not prim.IsValid():
-                continue
-            root_prim = _resolve_root(prim)
-            if not root_prim or not root_prim.IsValid():
-                continue
-            prim_path = str(root_prim.GetPrimPath())
+        for prim in targets:
+            prim_path = str(prim.GetPrimPath())
             safe_name = prim_path.replace("/", "_").lstrip("_") + "_xform"
             try:
                 if scene.object_exists(safe_name):
                     continue
             except Exception:
-                # object_exists may not be available on older Isaac builds; best-effort continue
                 pass
             try:
                 xform = XFormPrim(prim_path, name=safe_name)
                 scene.add(xform)
-                print(f"[CharacterUtil] Registered character root {prim_path} with World scene as {safe_name}")
+                print(f"[CharacterUtil] Registered prim {prim_path} with World scene as {safe_name}")
             except Exception as exc:
                 print(f"[CharacterUtil] Failed to register {prim_path} with World scene: {exc}")
 
