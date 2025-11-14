@@ -366,11 +366,20 @@ class EnvsetTaskRuntime:
             return
         mgr = AgentManager.get_instance()
         if not mgr.agent_registered(agent_name):
-            print(f"[EnvsetRuntime] Agent '%s' not registered yet when injecting route", agent_name)
+            print(f"[EnvsetRuntime] Agent '{agent_name}' not registered yet when injecting route")
             return
-        mgr.inject_command(agent_name, commands, force_inject=True, instant=True)
-        cls._pending_routes.pop(agent_name, None)
-        print(f"[EnvsetRuntime] Injected route to agent '{agent_name}': {commands}")
+
+        # ★★ 重要：使用 force_inject=True 确保覆盖任何默认命令 ★★
+        # instant=True 确保立即生效，不等待当前命令完成
+        try:
+            mgr.inject_command(agent_name, commands, force_inject=True, instant=True)
+            cls._pending_routes.pop(agent_name, None)
+            print(f"[EnvsetRuntime] ✓ Successfully injected route to agent '{agent_name}': {commands}")
+        except Exception as exc:
+            print(f"[EnvsetRuntime] ✗ Failed to inject route to agent '{agent_name}': {exc}")
+            # 注入失败时不 pop，保留路由供后续重试
+            import traceback
+            print(traceback.format_exc())
 
     # --------------------- helpers ---------------------
 
@@ -621,10 +630,11 @@ class EnvsetTaskRuntime:
                         agent_name = inst.get_agent_name()
                         print(f"[EnvsetRuntime][DEBUG] Manually registering agent {agent_name} for prim {prim_path}")
                         mgr.register_agent(agent_name, inst.prim_path)
-                        try:
-                            EnvsetTaskRuntime._inject_route(agent_name)
-                        except Exception as exc:
-                            print(f"[EnvsetRuntime][DEBUG] Route injection failed for {agent_name}: {exc}")
+                        # ★★ 重要：不要在这里立即注入路由！★★
+                        # behavior 的 on_play() 完成后会发送 AgentRegistered 事件
+                        # 事件触发的 _on_agent_registered() 会在正确时机注入路由
+                        # 如果现在注入，会过早消费 _pending_routes，导致事件触发时找不到路由
+                        print(f"[EnvsetRuntime][DEBUG] Route injection will be triggered by AgentRegistered event for {agent_name}")
                     except Exception as exc:
                         print(f"[EnvsetRuntime][DEBUG] register_agent failed for {inst}: {exc}")
 
