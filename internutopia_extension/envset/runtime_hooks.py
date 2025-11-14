@@ -510,36 +510,72 @@ class EnvsetTaskRuntime:
         script_path = BehaviorScriptPaths.behavior_script_path()
         carb.log_info(f"[EnvsetRuntime] Attaching behavior script: {script_path}")
         CharacterUtil.setup_python_scripts_to_character(character_list, script_path)
-        try:
-            from omni.kit.scripting.scripts.script_manager import ScriptManager  # type: ignore
-            scripts_manager = ScriptManager.get_instance()
-            script_map = scripts_manager._prim_to_scripts if scripts_manager else {}
-        except Exception as exc:  # pragma: no cover - diagnostic only
-            script_map = {}
-            print(f"[EnvsetRuntime] ScriptManager diagnostics unavailable: {exc}")
-        print(f"[EnvsetRuntime][DEBUG] ScriptManager contains {len(script_map)} prim entries")
-        for prim in character_list:
-            prim_path = str(prim.GetPrimPath())
-            registered = False
-            if script_map and prim_path in script_map:
-                for _, inst in script_map[prim_path].items():
-                    if inst:
-                        try:
-                            inst_name = inst.get_agent_name() if hasattr(inst, "get_agent_name") else None
-                        except Exception:
-                            inst_name = None
-                        print(
-                            f"[EnvsetRuntime][DEBUG] Script instance detected for {prim_path}: "
-                            f"{inst} (agent_name={inst_name})"
-                        )
-                        registered = True
-            if not registered:
-                print(
-                    f"[EnvsetRuntime][DEBUG] No script instance registered yet for {prim_path}; "
-                    "behavior script might not have initialized before AgentManager registration."
-                )
+        cls._await_script_manager_instances(character_list)
         
         SemanticsUtils.add_update_prim_metrosim_semantics(character_list, type_value="class", name="character")
+
+    @staticmethod
+    def _await_script_manager_instances(character_list, max_attempts: int = 6):
+        """Wait for ScriptManager to create behavior script instances, updating the Kit app between attempts."""
+        try:
+            from omni.kit.scripting.scripts.script_manager import ScriptManager  # type: ignore
+            script_manager = ScriptManager.get_instance()
+        except Exception as exc:
+            print(f"[EnvsetRuntime] ScriptManager diagnostics unavailable: {exc}")
+            return
+
+        if not script_manager:
+            print("[EnvsetRuntime] ScriptManager instance is None; cannot inspect behavior scripts.")
+            return
+
+        try:
+            import omni.kit.app  # type: ignore
+            app = omni.kit.app.get_app()
+        except Exception:
+            app = None
+
+        def _dump_status() -> bool:
+            script_map = script_manager._prim_to_scripts or {}
+            print(f"[EnvsetRuntime][DEBUG] ScriptManager currently tracks {len(script_map)} prim entries")
+            ready = True
+            for prim in character_list:
+                prim_path = str(prim.GetPrimPath())
+                insts = script_map.get(prim_path)
+                if not insts:
+                    print(
+                        f"[EnvsetRuntime][DEBUG] No script instance registered yet for {prim_path}; "
+                        "behavior script may still be initializing."
+                    )
+                    ready = False
+                    continue
+                live_inst = False
+                for _, inst in insts.items():
+                    if inst:
+                        live_inst = True
+                        agent_name = inst.get_agent_name() if hasattr(inst, "get_agent_name") else None
+                        print(
+                            f"[EnvsetRuntime][DEBUG] Script instance detected for {prim_path}: "
+                            f"{inst} (agent_name={agent_name})"
+                        )
+                if not live_inst:
+                    print(
+                        f"[EnvsetRuntime][DEBUG] Script entries exist for {prim_path} but all instances are None; "
+                        "waiting for initialization."
+                    )
+                    ready = False
+            return ready
+
+        for attempt in range(max_attempts):
+            if _dump_status():
+                return
+            if not app:
+                break
+            try:
+                app.update()
+            except Exception as exc:
+                print(f"[EnvsetRuntime][DEBUG] app.update() failed while waiting for scripts: {exc}")
+                break
+        _dump_status()
 
     @classmethod
     def _configure_arrival_guard(cls, envset_cfg, vh_cfg):
