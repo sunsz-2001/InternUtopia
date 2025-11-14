@@ -181,7 +181,8 @@ class AgentManager:
         agent_name = agent_info["agent_name"]
         agent_prim_path = agent_info["prim_path"]
         print(
-            f"[AgentManager] on_agent_registered event: agent={agent_name}, prim={agent_prim_path}"
+            f"[AgentManager] on_agent_registered event: agent={agent_name}, prim={agent_prim_path}, "
+            f"metadata={agent_info}"
         )
         self.register_agent(agent_name, agent_prim_path)
         carb.log_info(f"{agent_name} is registered with prim path {agent_prim_path}")
@@ -209,6 +210,11 @@ class AgentManager:
             print(
                 f"[AgentManager][DEBUG] register_agent called but no BehaviorScript instance for {agent_name} "
                 f"at {agent_prim_path}. Script initialization may still be pending."
+            )
+        else:
+            print(
+                f"[AgentManager][DEBUG] register_agent succeeded for {agent_name} "
+                f"({agent_inst}) at {agent_prim_path}"
             )
         # add the agent inst to the dict
         self._agent_name_to_script_inst[agent_name] = agent_inst

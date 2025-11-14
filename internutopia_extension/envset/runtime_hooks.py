@@ -516,7 +516,8 @@ class EnvsetTaskRuntime:
             script_map = scripts_manager._prim_to_scripts if scripts_manager else {}
         except Exception as exc:  # pragma: no cover - diagnostic only
             script_map = {}
-            carb.log_warn(f"[EnvsetRuntime] ScriptManager diagnostics unavailable: {exc}")
+            print(f"[EnvsetRuntime] ScriptManager diagnostics unavailable: {exc}")
+        print(f"[EnvsetRuntime][DEBUG] ScriptManager contains {len(script_map)} prim entries")
         for prim in character_list:
             prim_path = str(prim.GetPrimPath())
             registered = False
