@@ -9,6 +9,13 @@ from isaacsim.core.utils import prims, semantics
 from isaacsim.core.utils.rotations import lookat_to_quatf
 from pxr import AnimGraphSchema, Gf, Sdf, Usd, UsdGeom
 
+try:
+    from omni.isaac.core import World
+    from omni.isaac.core.prims import XFormPrim
+except Exception:  # pragma: no cover - runtime dependency
+    World = None
+    XFormPrim = None
+
 
 def _get_stage_meters_per_unit(stage: Usd.Stage) -> float:
     try:
@@ -831,6 +838,44 @@ class CharacterUtil:
             scripts_value = [r"{}".format(python_script_path)]
             attr.Set(scripts_value)
             print(f"[CharacterUtil] Scripts applied to {prim.GetPrimPath()} -> {scripts_value}")
+
+    def register_characters_with_world(character_skelroot_list: list):
+        """
+        Ensure spawned characters are tracked by the Isaac World scene so behavior scripts
+        can query active characters (required for character_behavior.py init routines).
+        """
+        if not character_skelroot_list:
+            return
+        if World is None or XFormPrim is None:
+            print("[CharacterUtil] Isaac World API unavailable; skip character scene registration.")
+            return
+        try:
+            world = World.instance()
+        except Exception as exc:
+            print(f"[CharacterUtil] Unable to obtain World instance for character registration: {exc}")
+            return
+        scene = getattr(world, "scene", None)
+        if scene is None:
+            print("[CharacterUtil] World scene unavailable; cannot register characters.")
+            return
+
+        for prim in character_skelroot_list:
+            if not prim or not prim.IsValid():
+                continue
+            prim_path = str(prim.GetPrimPath())
+            safe_name = prim_path.replace("/", "_").lstrip("_") + "_xform"
+            try:
+                if scene.object_exists(safe_name):
+                    continue
+            except Exception:
+                # object_exists may not be available on older Isaac builds; best-effort continue
+                pass
+            try:
+                xform = XFormPrim(prim_path, name=safe_name)
+                scene.add(xform)
+                print(f"[CharacterUtil] Registered character prim {prim_path} with World scene as {safe_name}")
+            except Exception as exc:
+                print(f"[CharacterUtil] Failed to register {prim_path} with World scene: {exc}")
 
     # Delete one character prim bt the given name
     def delete_character_prim(char_name):

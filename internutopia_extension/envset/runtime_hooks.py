@@ -513,6 +513,10 @@ class EnvsetTaskRuntime:
         cls._await_script_manager_instances(character_list)
         
         SemanticsUtils.add_update_prim_metrosim_semantics(character_list, type_value="class", name="character")
+        try:
+            CharacterUtil.register_characters_with_world(character_list)
+        except Exception as exc:
+            print(f"[EnvsetRuntime][DEBUG] Failed to register characters with World scene: {exc}")
 
     @staticmethod
     def _await_script_manager_instances(character_list, max_attempts: int = 6):
