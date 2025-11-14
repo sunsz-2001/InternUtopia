@@ -7,7 +7,7 @@ import omni.client
 import omni.kit.commands
 from isaacsim.core.utils import prims, semantics
 from isaacsim.core.utils.rotations import lookat_to_quatf
-from pxr import Gf, Sdf, Usd, UsdGeom
+from pxr import AnimGraphSchema, Gf, Sdf, Usd, UsdGeom
 
 
 def _get_stage_meters_per_unit(stage: Usd.Stage) -> float:
@@ -803,19 +803,19 @@ class CharacterUtil:
             "ApplyAnimationGraphAPICommand", paths=paths, animation_graph_path=Sdf.Path(anim_graph_path)
         )
         for prim in character_skelroot_list:
-            attr = prim.GetAttribute("omni:animGraph:graphPath")
-            attr_value = None
-            if attr and attr.IsValid():
-                attr_value = attr.Get()
+            anim_graph_api = AnimGraphSchema.AnimationGraphAPI(prim)
+            relation = anim_graph_api.GetAnimationGraphRel()
+            targets = relation.GetTargets() if relation and relation.IsValid() else []
+            applied = anim_graph_path in targets
             print(
                 f"[CharacterUtil] AnimGraph applied to {prim.GetPrimPath()} -> "
-                f"{attr_value if attr_value else 'None'}"
+                f"{targets if targets else '[]'}"
             )
-            if not attr_value:
+            if not applied:
                 raise RuntimeError(
                     "[CharacterUtil] Failed to attach animation graph; "
-                    f"'omni:animGraph:graphPath' is {attr_value!r} for {prim.GetPrimPath()} "
-                    "after ApplyAnimationGraphAPICommand."
+                    f"'AnimationGraph' targets {targets} for {prim.GetPrimPath()} "
+                    f"don't include {anim_graph_path} after ApplyAnimationGraphAPICommand."
                 )
 
     def setup_python_scripts_to_character(character_skelroot_list: list, python_script_path):
