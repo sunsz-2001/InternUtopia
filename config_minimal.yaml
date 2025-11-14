@@ -17,7 +17,9 @@ env_num: 1
 # Task configurations: envset will augment this minimal task with scene, robots, etc.
 task_configs:
   - type: FiniteStepTask
-    max_steps: 3000
+    max_steps: 3000  # Default: auto-stop DISABLED, runs indefinitely
+                      # To enable auto-stop: task.enable_auto_stop() in code
+                      # For manual stop: task.request_stop() at any time
     robots: []  # Will be populated from envset.json
     scene_asset_path: null  # Will be populated from envset.json
 

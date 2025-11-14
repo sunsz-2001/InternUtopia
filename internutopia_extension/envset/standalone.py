@@ -132,7 +132,6 @@ class EnvsetStandaloneRunner:
             return
 
         stage = omni.usd.get_context().get_stage()
-        print(f"[EnvsetStandalone] === Snapshot: {label} === [CODE_VERSION: 2025-11-12-v2]")
         print(f"  Stage valid: {bool(stage)}")
 
         characters_root_path = None
@@ -259,16 +258,12 @@ class EnvsetStandaloneRunner:
 
         print("[EnvsetStandalone] Post-runner initialization...")
         self._post_runner_initialize()
-        self._print_runtime_snapshot("After post-runner initialization (before reset)")
-
-        # 调试：检查articulation路径和状态
         print("[EnvsetStandalone] Checking articulation paths and status...")
         self._debug_articulation_paths()
 
         print("[EnvsetStandalone] Resetting environment (this will load scene and start timeline)...")
         # Reset and start - 这会加载场景并启动 timeline
         self._runner.reset()
-        self._print_runtime_snapshot("After runner.reset()")
 
         # ⚠️ 关键步骤 1：在 runner.reset() 之后烘焙 NavMesh
         # runner.reset() 已经加载了场景到 /World/env_0/scene
@@ -297,7 +292,6 @@ class EnvsetStandaloneRunner:
         # 等待场景和对象完全初始化
         print("[EnvsetStandalone] Waiting for scene and objects to initialize...")
         self._wait_for_initialization()
-        self._print_runtime_snapshot("After initialization wait")
 
         if self._args.run_data:
             self._init_data_generation()
@@ -1035,11 +1029,10 @@ class EnvsetStandaloneRunner:
         if timeline.is_playing():
             print("[EnvsetStandalone] Timeline is already playing, waiting for articulations to initialize...")
             self._wait_for_articulations_initialized()
+            self._print_runtime_snapshot("After timeline auto-started")
             # 等待几帧让脚本有时间初始化
             for _ in range(5):
                 sim_app.update()
-            # 打印 Agent 注册状态
-            self._print_runtime_snapshot("After timeline auto-started")
         else:
             print("[EnvsetStandalone] Timeline is paused. Articulations will initialize when timeline starts.")
 
@@ -1064,8 +1057,6 @@ class EnvsetStandaloneRunner:
             if timeline_is_playing and not timeline_was_playing:
                 carb.log_info("[EnvsetStandalone] Timeline started, waiting for articulations to initialize...")
                 self._wait_for_articulations_initialized()
-                # 打印 Agent 注册状态快照
-                self._print_runtime_snapshot("After timeline started")
                 timeline_was_playing = True
             elif not timeline_is_playing:
                 timeline_was_playing = False

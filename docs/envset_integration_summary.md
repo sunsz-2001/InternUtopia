@@ -226,6 +226,230 @@ class EnvsetTaskRuntime:
 
 > 注意：目前未实现随机化或 spawn shuffle——按需求明确无需支持。
 
+### 3.2 AnimGraph/People 初始化时序修复（2024-11-14）
+
+**问题背景**：
+
+在 Standalone 模式下启用 `omni.anim.graph` 和 `omni.anim.people` 扩展时，虚拟人物会出现以下问题：
+1. **T-pose 不解除**：角色保持初始 T-pose 姿态，动画图不生效
+2. **路由命令不执行**：虽然注入成功，但角色不移动
+
+**症状日志**：
+
+```
+[Warning] [omni.fabric.plugin] Warning: attribute animationGraph not found for path .../male_adult_medical_01
+[Warning] [omni.anim.graph.core.plugin] getCharacter - .../male_adult_medical_01 is not a SkelRoot prim or does not apply AnimationGraphAPI
+[Warning] [character_behavior] Command file field is empty.
+[EnvsetRuntime] No pending route for Character when trying to inject
+```
+
+#### 根本原因分析
+
+通过日志时间戳和代码流程分析，发现了两个根本性问题：
+
+**问题 1：扩展加载顺序导致 AnimGraph 插件状态异常**
+
+官方已知 bug（[NVIDIA Forum #301378](https://forums.developer.nvidia.com/t/isaac-sim-people-simulation-broken-in-4-1-0/301378)）：
+
+```
+SimulationApp 创建 [0ms]
+  ↓ 自动生成默认 stage
+enable_extension("omni.anim.graph.core") [100ms]
+  ↓ 扩展在已有 stage 上启用
+AnimGraph 插件初始化 [150ms]
+  ↓ ⚠️ 错过了 stage 初始状态，内部 CharacterManager 未正确建立
+runner.reset() [500ms]
+  ↓ 加载场景、spawn 角色
+ApplyAnimationGraphAPICommand [1000ms]
+  ↓ USD schema 层成功应用
+  ✗ 但 AnimGraph 插件内部状态已损坏
+  ✗ getCharacter() 永远返回 None
+  ✗ 角色保持 T-pose
+```
+
+**问题 2：路由命令过早注入并被消费**
+
+在 `runtime_hooks.py:619-630` 的手动 Agent 注册逻辑中，路由在 behavior 真正准备好之前就被注入并从 `_pending_routes` 中移除：
+
+```python
+# 错误的时序
+_register_scripts_with_agent_manager()
+  ├─ inst.init_character()  # behavior 开始初始化
+  ├─ inst.on_play()         # behavior on_play
+  ├─ mgr.register_agent()   # 手动注册到 AgentManager
+  └─ _inject_route()        # ⚠️ 立即注入路由
+      └─ _pending_routes.pop('Character')  # 路由被消费
+
+... 几帧后 ...
+
+behavior 内部完成初始化
+  └─ 发送 AgentRegistered 事件
+      └─ _on_agent_registered('Character')
+          └─ _inject_route('Character')
+              ✗ "No pending route" # 已经被 pop 了！
+```
+
+#### 修复方案
+
+**修复 1：Stage 重建（standalone.py:372-382）**
+
+在启用所有 AnimGraph/People 扩展后，立即重建干净的 stage：
+
+```python
+# 在 _prepare_runtime_settings() 中
+enable_extension("omni.anim.graph.core")
+enable_extension("omni.anim.graph.schema")
+enable_extension("omni.anim.navigation.core")
+enable_extension("omni.anim.people")
+
+# ★★ 关键修复：重建 stage ★★
+import omni.usd
+usd_ctx = omni.usd.get_context()
+usd_ctx.new_stage()
+carb.log_info("Re-created stage after enabling AnimGraph/People extensions (bug workaround)")
+```
+
+**执行顺序变更**：
+
+```
+SimulationApp 创建 [0ms]
+  ↓ 生成默认 stage（将被丢弃）
+enable_extension("omni.anim.graph.core") [100ms]
+  ↓
+new_stage() [150ms]  # ★ 创建干净的 stage
+  ↓ AnimGraph 插件在新 stage 上正确初始化
+runner.reset() [500ms]
+  ↓ 在干净 stage 上加载场景、spawn 角色
+ApplyAnimationGraphAPICommand [1000ms]
+  ↓ USD schema + 插件内部状态都正常
+  ✓ getCharacter() 返回有效对象
+  ✓ 角色解除 T-pose，动画正常
+```
+
+**效果**：
+- ✅ 解决 T-pose 问题
+- ✅ AnimGraph 插件正确识别角色
+- ✅ 不再出现 "animationGraph not found" 警告
+
+**修复 2：路由注入时机调整（runtime_hooks.py:624-628）**
+
+移除手动注册时的立即路由注入，改为等待真正的 `AgentRegistered` 事件：
+
+```python
+# 修改前（错误）
+if mgr and hasattr(inst, "get_agent_name"):
+    agent_name = inst.get_agent_name()
+    mgr.register_agent(agent_name, inst.prim_path)
+    EnvsetTaskRuntime._inject_route(agent_name)  # ✗ 过早注入
+
+# 修改后（正确）
+if mgr and hasattr(inst, "get_agent_name"):
+    agent_name = inst.get_agent_name()
+    mgr.register_agent(agent_name, inst.prim_path)
+    # ★ 不立即注入，等待 AgentRegistered 事件触发
+    print(f"Route injection will be triggered by AgentRegistered event for {agent_name}")
+```
+
+**时序修正**：
+
+```
+_register_scripts_with_agent_manager()
+  ├─ inst.init_character()
+  ├─ inst.on_play()
+  ├─ mgr.register_agent()
+  └─ 保留路由不注入  # ★ 等待正确时机
+
+... render warm-up ...
+
+behavior 完全初始化
+  └─ 发送 AgentRegistered 事件
+      └─ _on_agent_registered('Character')
+          └─ _inject_route('Character')
+              ✓ _pending_routes 中仍有路由
+              ✓ mgr.inject_command() 成功
+              ✓ 角色开始执行 GoTo 命令
+```
+
+**效果**：
+- ✅ 路由在正确时机注入
+- ✅ 不再出现 "No pending route" 错误
+- ✅ 角色正常执行导航命令
+
+**修复 3：路由注入错误处理增强（runtime_hooks.py:372-382）**
+
+增加详细的日志和异常处理：
+
+```python
+@classmethod
+def _inject_route(cls, agent_name: str):
+    commands = cls._pending_routes.get(agent_name)
+    if not commands:
+        print(f"[EnvsetRuntime] No pending route for {agent_name}")
+        return
+
+    try:
+        mgr.inject_command(agent_name, commands, force_inject=True, instant=True)
+        cls._pending_routes.pop(agent_name, None)
+        print(f"[EnvsetRuntime] ✓ Successfully injected route to agent '{agent_name}': {commands}")
+    except Exception as exc:
+        print(f"[EnvsetRuntime] ✗ Failed to inject route to agent '{agent_name}': {exc}")
+        # 注入失败时不 pop，保留路由供后续重试
+        import traceback
+        print(traceback.format_exc())
+```
+
+#### 验证清单
+
+修复成功后，日志应该显示：
+
+1. **Stage 重建**：
+   ```
+   [EnvsetStandalone] Re-created stage after enabling AnimGraph/People extensions (bug workaround)
+   ```
+
+2. **AnimGraph 正常应用**（无警告）：
+   ```
+   [CharacterUtil] AnimGraph applied to .../male_adult_medical_01 -> [Sdf.Path('...')]
+   # 不再有 "animationGraph not found" 警告
+   ```
+
+3. **路由注入成功**：
+   ```
+   [EnvsetRuntime] Route injection will be triggered by AgentRegistered event for Character
+   [AgentManager][DEBUG] register_agent succeeded for Character
+   [EnvsetRuntime] ✓ Successfully injected route to agent 'Character': ['Character GoTo -5.0 -4.0 0.0 _', ...]
+   ```
+
+4. **角色行为正常**：
+   - 角色从 T-pose 折叠手臂（动画生效）
+   - 角色开始沿 NavMesh 移动（导航生效）
+
+#### 技术细节说明
+
+**为什么 new_stage() 是必要的？**
+
+`omni.anim.graph.core` 插件在启用时会：
+1. 监听 stage 上的 prim 创建/修改事件
+2. 扫描现有 stage 建立内部 CharacterManager 映射
+3. 为每个 SkelRoot 创建 Fabric 绑定
+
+如果插件在 stage 已经存在后才启用，第 2 步会在一个"半成品" stage 上执行，导致内部状态损坏。`new_stage()` 确保插件在一个干净的 stage 上初始化。
+
+**为什么路由注入要等待事件？**
+
+`character_behavior.py` 的初始化有多个阶段：
+1. `init_character()` - 创建内部数据结构
+2. `on_play()` - 注册到 AgentManager
+3. **几帧延迟** - 等待 AnimGraph 完全就绪
+4. 发送 `AgentRegistered` 事件 - 标记真正可以接收命令
+
+手动注册只完成了第 2 步，此时 behavior 还没有准备好处理导航命令。等待事件确保在第 4 步之后才注入。
+
+**参考资料**：
+- [Isaac Sim People Simulation Bug](https://forums.developer.nvidia.com/t/isaac-sim-people-simulation-broken-in-4-1-0/301378)
+- [AnimationGraph Standalone Issue](https://forums.developer.nvidia.com/t/animationgraph-does-not-work-with-standalone-python/293382)
+- [People Animations in Standalone](https://forums.developer.nvidia.com/t/people-animations-in-standalone-app/282800)
+
 ## 4. 物理仿真稳定性修复（2024-11）
 
 ### 4.1 问题背景
@@ -580,7 +804,153 @@ if robot_type == "aliengo":
 - `simulation.py:1218-1221` - 使用前检查可用性
 - `standalone.py:149-154` - 尝试启用但失败不影响启动
 
-## 7. 现存缺口 / TODO
+## 7. Task 终止控制（2024-11-14）
+
+### 7.1 FiniteStepTask 终止机制
+
+`FiniteStepTask` 提供了灵活的终止控制，支持手动、自动和自定义终止条件。
+
+**默认行为**：
+- ✅ **自动停止默认关闭** - 任务会无限运行，适合交互式调试和探索
+- ✅ **手动控制** - 通过 API 随时停止任务
+- ✅ **可扩展** - 支持子类自定义终止条件
+
+#### 终止控制 API
+
+**1. 手动终止**（推荐用于交互式场景）：
+
+```python
+# 在运行时的任何时候，可以手动请求停止
+task = runner.current_tasks['0']  # 获取第一个 task
+task.request_stop()
+# 下一次 is_done() 检查时，task 将标记为完成
+```
+
+**2. 自动终止**（适合批量运行和基准测试）：
+
+```python
+# 启用自动停止：运行指定步数后自动结束
+task = runner.current_tasks['0']
+task.enable_auto_stop()  # 将在 max_steps 步后自动停止
+
+# 动态调整步数
+task.set_max_steps(5000)
+
+# 禁用自动停止（恢复无限运行模式）
+task.disable_auto_stop()
+```
+
+**3. 查询状态**：
+
+```python
+# 检查当前状态
+current_step = task.get_current_step()
+max_steps = task.get_max_steps()
+is_auto_enabled = task.is_auto_stop_enabled()
+is_manual_requested = task.is_stop_requested()
+
+print(f"Step {current_step}/{max_steps}, auto={is_auto_enabled}")
+```
+
+**4. 自定义终止条件**（高级用法）：
+
+```python
+# 创建自定义 Task 子类
+from internutopia_extension.tasks.finite_step_task import FiniteStepTask
+
+class GoalReachedTask(FiniteStepTask):
+    def _check_custom_termination_conditions(self) -> bool:
+        # 自定义逻辑：检查机器人是否到达目标
+        robot = self.robots.get('my_robot')
+        if robot is None:
+            return False
+
+        pos = robot.get_position()
+        goal = self.goal_position
+        distance = np.linalg.norm(pos - goal)
+
+        if distance < 0.1:  # 距离目标小于 10cm
+            print(f"[{self.name}] Goal reached! Stopping task.")
+            return True
+        return False
+```
+
+#### 终止优先级
+
+终止条件按以下优先级检查（`is_done()` 中的实现）：
+
+```
+1. 手动停止（request_stop()）         ← 最高优先级
+   ↓
+2. 自动停止（enable_auto_stop()）     ← 如果启用
+   ↓
+3. 自定义条件（_check_custom_termination_conditions()）
+   ↓
+4. 继续运行（返回 False）             ← 默认行为
+```
+
+#### 配置文件说明
+
+`config_minimal.yaml` 中的 `max_steps` 参数现在**仅作为上限参考**，不会自动触发停止：
+
+```yaml
+task_configs:
+  - type: FiniteStepTask
+    max_steps: 3000  # 仅在调用 enable_auto_stop() 后生效
+    robots: []
+```
+
+**重要**：如果你需要任务自动停止，必须在代码中显式调用 `task.enable_auto_stop()`。
+
+#### 使用场景示例
+
+**场景 1：交互式调试**（默认模式）
+```python
+# 不做任何设置，任务会无限运行
+# 在 Isaac Sim 中手动观察和调试
+# 需要停止时在代码中调用 task.request_stop()
+```
+
+**场景 2：定时基准测试**
+```python
+# 启动后立即启用自动停止
+runner.reset()
+for task in runner.current_tasks.values():
+    task.enable_auto_stop()
+    task.set_max_steps(10000)  # 运行 10000 步
+# 任务会自动在 10000 步后结束
+```
+
+**场景 3：目标驱动任务**
+```python
+# 创建自定义 Task，重写 _check_custom_termination_conditions
+# 当机器人完成任务（到达目标、抓取物体等）时自动停止
+```
+
+#### 从 standalone.py 访问 Task
+
+```python
+# 在 standalone.py 的 _main_loop 中访问 task
+def _main_loop(self):
+    # 获取第一个 task
+    task_name = list(self._runner.current_tasks.keys())[0]
+    task = self._runner.current_tasks[task_name]
+
+    # 示例：按键控制终止
+    # if keyboard_pressed('Q'):
+    #     task.request_stop()
+
+    # 示例：运行 5000 步后自动停止
+    # if task.get_current_step() == 0:
+    #     task.enable_auto_stop()
+    #     task.set_max_steps(5000)
+
+    while sim_app.is_running():
+        # ... 主循环逻辑 ...
+        pass
+```
+
+### 7.2 现存缺口 / TODO
 
 1. ~~**机器人类型扩展**~~ ✅ **已完成**
    - ✅ 支持 `aliengo`（四足）、`h1`、`g1`、`gr1`（人形）、`franka`（机械臂）等类型
